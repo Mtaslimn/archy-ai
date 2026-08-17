@@ -1,5 +1,6 @@
 "use client"
 
+import { UserButton } from "@clerk/nextjs"
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import type { ReactNode } from "react"
 
@@ -10,6 +11,7 @@ interface EditorNavbarProps {
   isSidebarOpen: boolean
   onToggleSidebar: () => void
   centerSlot?: ReactNode
+  rightSlot?: ReactNode
   className?: string
 }
 
