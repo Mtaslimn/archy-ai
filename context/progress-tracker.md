@@ -43,3 +43,4 @@ Update this file whenever the current phase, active feature, or implementation s
 - Design system setup from `context/feature-specs/01-design-system.md` is implemented and verified with TypeScript, scoped ESLint, `cn()` runtime check, and `next build`.
 - `context/feature-specs/02-editor.md` is implemented and verified with TypeScript and ESLint.
 - Editor layout integration is implemented and verified with TypeScript and ESLint.
+- Project naming updated to Archy AI in product context and homepage placeholder.
