@@ -1,11 +1,10 @@
-import { EditorLayout } from "@/components/editor/editor-layout";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 
-export default function Home() {
-  return (
-    <EditorLayout>
-      <div className="flex h-full items-center justify-center text-sm text-copy-muted">
-        Archy AI
-      </div>
-    </EditorLayout>
-  );
+import { signInPath } from "@/lib/clerk-auth-paths";
+
+export default async function Home() {
+  const { isAuthenticated } = await auth();
+
+  redirect(isAuthenticated ? "/editor" : signInPath);
 }
