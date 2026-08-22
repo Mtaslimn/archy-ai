@@ -47,7 +47,9 @@ export function EditorNavbar({
         {centerSlot}
       </div>
 
-      <div aria-hidden="true" className="min-w-0" />
+      <div className="flex min-w-0 items-center justify-end">
+        <UserButton />
+      </div>
     </header>
   )
 }

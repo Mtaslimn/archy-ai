@@ -22,6 +22,23 @@ export function EditorLayout({ children, className }: EditorLayoutProps) {
           setIsProjectSidebarOpen((currentIsOpen) => !currentIsOpen)
         }
       />
+
+      {/* Mobile Backdrop Scrim */}
+      {isProjectSidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-xs md:hidden transition-opacity duration-200"
+          onClick={() => setIsProjectSidebarOpen(false)}
+          aria-label="Close project sidebar overlay"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              setIsProjectSidebarOpen(false)
+            }
+          }}
+        />
+      )}
+
       <ProjectSidebar
         isOpen={isProjectSidebarOpen}
         onClose={() => setIsProjectSidebarOpen(false)}
