@@ -4,11 +4,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Editor layout integration complete
+- Authentication integration complete
 
 ## Current Goal
 
-- Ready for the next feature unit.
+- All planned feature specs completed.
 
 ## Completed
 
@@ -21,14 +21,20 @@ Update this file whenever the current phase, active feature, or implementation s
 - Confirmed the existing shadcn Dialog primitive pattern supports title, description, and footer actions while using project theme tokens.
 - Added `components/editor/editor-layout.tsx` to compose the editor navbar and project sidebar with local sidebar state.
 - Rendered the homepage inside the editor layout shell.
+- Configured `ClerkProvider` in the root layout with Clerk's dark theme and customized appearance using custom CSS variables (no hardcoded colors).
+- Created dynamic wildcard auth pages `app/sign-in` and `app/sign-up` using Clerk's `<SignIn />` and `<SignUp />` components.
+- Designed a minimal, responsive `AuthShell` layout with a text-only features panel on large screens and a centered form container on small screens.
+- Defined route protection rules and `/` redirects based on authentication status using `proxy.ts`.
+- Added the standard `UserButton` to the editor navbar's right section for settings and logout.
+- Implemented project dialogue features (editor home screen, project dialogs, and sidebar actions) exactly as specified in [04-project-dialogue.md](file:///c:/Users/MD.%20TASLIM%20KHAN/Desktop/archy/context/feature-specs/04-project-dialogue.md).
 
 ## In Progress
 
-- None yet.
+- None.
 
 ## Next Up
 
-- Select and implement the next feature spec.
+- Ready for review or additional feature specifications.
 
 ## Open Questions
 
