@@ -51,6 +51,7 @@ export function ProjectSidebar({
   const {
     ownedProjects: myProjects,
     sharedProjects,
+    currentProjectId,
     openCreateDialog,
     openRenameDialog,
     openDeleteDialog,
@@ -101,10 +102,12 @@ export function ProjectSidebar({
             <ScrollArea className="flex-1">
               <div className="space-y-1.5 p-3">
                 {myProjects.map((project) => (
+                  // Project rows are navigational, while hover buttons handle mutations.
                   <div
                     key={project.id}
                     role="button"
                     tabIndex={0}
+                    aria-current={project.id === currentProjectId ? "page" : undefined}
                     onClick={() => openProject(project.id)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
@@ -112,7 +115,11 @@ export function ProjectSidebar({
                         openProject(project.id)
                       }
                     }}
-                    className="group/item relative flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-subtle text-copy-primary border border-transparent hover:border-surface-border-subtle"
+                    className={cn(
+                      "group/item relative flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-subtle text-copy-primary border border-transparent hover:border-surface-border-subtle",
+                      project.id === currentProjectId &&
+                        "border-surface-border bg-subtle",
+                    )}
                   >
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
@@ -169,6 +176,7 @@ export function ProjectSidebar({
                     key={project.id}
                     role="button"
                     tabIndex={0}
+                    aria-current={project.id === currentProjectId ? "page" : undefined}
                     onClick={() => openProject(project.id)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
@@ -176,7 +184,11 @@ export function ProjectSidebar({
                         openProject(project.id)
                       }
                     }}
-                    className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-subtle/50 text-copy-primary border border-transparent hover:border-surface-border-subtle min-w-0"
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-subtle/50 text-copy-primary border border-transparent hover:border-surface-border-subtle min-w-0",
+                      project.id === currentProjectId &&
+                        "border-surface-border bg-subtle",
+                    )}
                   >
                     <FolderOpen className="h-4 w-4 shrink-0 text-copy-muted" />
                     <span className="truncate font-medium flex-1">{project.name}</span>
