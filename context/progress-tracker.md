@@ -4,7 +4,7 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Authentication integration complete
+- Prisma data models and first migration complete
 
 ## Current Goal
 
@@ -27,6 +27,9 @@ Update this file whenever the current phase, active feature, or implementation s
 - Defined route protection rules and `/` redirects based on authentication status using `proxy.ts`.
 - Added the standard `UserButton` to the editor navbar's right section for settings and logout.
 - Implemented project dialogue features (editor home screen, project dialogs, and sidebar actions) exactly as specified in [04-project-dialogue.md](file:///c:/Users/MD.%20TASLIM%20KHAN/Desktop/archy/context/feature-specs/04-project-dialogue.md).
+- Added `Project` and `ProjectCollaborator` models in `prisma/models/project.prisma` with Clerk owner ID, status enum, canvas path, cascade delete, uniqueness, and indexes.
+- Added a cached Prisma client singleton in `lib/prisma.ts` that uses Accelerate for `prisma+postgres://` URLs and `@prisma/adapter-pg` otherwise.
+- Applied the first Prisma migration and confirmed `npm run build` passes.
 
 ## In Progress
 
@@ -42,7 +45,8 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Architecture Decisions
 
-- Add decisions that affect the system design or data model.
+- Prisma CLI config loads `.env` then `.env.local` so `DATABASE_URL` matches Next.js local env.
+- Runtime Prisma Client uses Accelerate when `DATABASE_URL` starts with `prisma+postgres://`; otherwise it uses a direct Postgres driver adapter.
 
 ## Session Notes
 
@@ -50,3 +54,4 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/02-editor.md` is implemented and verified with TypeScript and ESLint.
 - Editor layout integration is implemented and verified with TypeScript and ESLint.
 - Project naming updated to Archy AI in product context and homepage placeholder.
+- `context/feature-specs/05-prisma.md` is implemented: schema models, cached Prisma client, first migration, and production build.
