@@ -49,14 +49,13 @@ export function ProjectSidebar({
   className,
 }: ProjectSidebarProps) {
   const {
-    projects,
+    ownedProjects: myProjects,
+    sharedProjects,
     openCreateDialog,
     openRenameDialog,
     openDeleteDialog,
+    openProject,
   } = useProjectManager()
-
-  const myProjects = projects.filter((p) => p.role === "owner")
-  const sharedProjects = projects.filter((p) => p.role === "collaborator")
 
   return (
     <aside
@@ -104,6 +103,15 @@ export function ProjectSidebar({
                 {myProjects.map((project) => (
                   <div
                     key={project.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openProject(project.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        openProject(project.id)
+                      }
+                    }}
                     className="group/item relative flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-subtle text-copy-primary border border-transparent hover:border-surface-border-subtle"
                   >
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -159,6 +167,15 @@ export function ProjectSidebar({
                 {sharedProjects.map((project) => (
                   <div
                     key={project.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openProject(project.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        openProject(project.id)
+                      }
+                    }}
                     className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-subtle/50 text-copy-primary border border-transparent hover:border-surface-border-subtle min-w-0"
                   >
                     <FolderOpen className="h-4 w-4 shrink-0 text-copy-muted" />

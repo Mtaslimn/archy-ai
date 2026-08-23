@@ -4,7 +4,7 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Prisma data models and first migration complete
+- Editor home wired to project APIs
 
 ## Current Goal
 
@@ -30,6 +30,14 @@ Update this file whenever the current phase, active feature, or implementation s
 - Added `Project` and `ProjectCollaborator` models in `prisma/models/project.prisma` with Clerk owner ID, status enum, canvas path, cascade delete, uniqueness, and indexes.
 - Added a cached Prisma client singleton in `lib/prisma.ts` that uses Accelerate for `prisma+postgres://` URLs and `@prisma/adapter-pg` otherwise.
 - Applied the first Prisma migration and confirmed `npm run build` passes.
+- Implemented project REST APIs from [06-project-apis.md](file:///c:/Users/MD.%20TASLIM%20KHAN/Desktop/archy/context/feature-specs/06-project-apis.md): `GET/POST /api/projects` and `PATCH/DELETE /api/projects/[projectId]`.
+- Enforced Clerk authentication (`401`) and owner-only rename/delete (`403`); create defaults missing names to `Untitled Project`.
+- Confirmed `npm run build` after adding the project API routes.
+- Wired the editor home and sidebar to server-fetched owned/shared project lists from the project data helper.
+- Replaced mock project mutations with real create, rename, and delete calls through the project REST API.
+- Added room ID preview generation for project creation and aligned created project IDs with the Liveblocks room ID.
+- Added `/editor/[projectId]` as the workspace navigation target for newly created and opened projects.
+- Confirmed `npm run lint` and `npm run build` pass after wiring the editor home.
 
 ## In Progress
 
@@ -47,6 +55,8 @@ Update this file whenever the current phase, active feature, or implementation s
 
 - Prisma CLI config loads `.env` then `.env.local` so `DATABASE_URL` matches Next.js local env.
 - Runtime Prisma Client uses Accelerate when `DATABASE_URL` starts with `prisma+postgres://`; otherwise it uses a direct Postgres driver adapter.
+- Project API mutations require the authenticated Clerk user to be the project `ownerId`; list/create are scoped to that owner ID.
+- Project IDs are generated on create from the slugified project name plus a short unique suffix so the project ID and Liveblocks room ID can match.
 
 ## Session Notes
 
@@ -55,3 +65,5 @@ Update this file whenever the current phase, active feature, or implementation s
 - Editor layout integration is implemented and verified with TypeScript and ESLint.
 - Project naming updated to Archy AI in product context and homepage placeholder.
 - `context/feature-specs/05-prisma.md` is implemented: schema models, cached Prisma client, first migration, and production build.
+- `context/feature-specs/06-project-apis.md` is implemented: backend-only project CRUD routes, owner checks, and production build.
+- `context/feature-specs/07-wire-editor-home.md` is implemented: server-side project list loading, real API-backed project mutations, workspace navigation, and production build.
