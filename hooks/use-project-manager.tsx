@@ -1,40 +1,18 @@
 "use client"
 
-import React, { createContext, useContext, useState } from "react"
+import React, { createContext, useContext, useMemo, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
 
 export interface Project {
   id: string
   name: string
-  slug: string
   role: "owner" | "collaborator"
 }
 
-const INITIAL_PROJECTS: Project[] = [
-  {
-    id: "1",
-    name: "E-commerce Platform",
-    slug: "e-commerce-platform",
-    role: "owner",
-  },
-  {
-    id: "2",
-    name: "Marketing Analytics Dashboard",
-    slug: "marketing-analytics-dashboard",
-    role: "owner",
-  },
-  {
-    id: "3",
-    name: "Billing Microservice",
-    slug: "billing-microservice",
-    role: "collaborator",
-  },
-  {
-    id: "4",
-    name: "Data Pipeline Architecture",
-    slug: "data-pipeline-architecture",
-    role: "collaborator",
-  },
-]
+export interface ProjectListItem {
+  id: string
+  name: string
+}
 
 export function toSlug(name: string): string {
   return name
@@ -45,36 +23,77 @@ export function toSlug(name: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
+function createShortSuffix() {
+  const values = new Uint32Array(1)
+  crypto.getRandomValues(values)
+
+  return values[0].toString(36).slice(0, 5)
+}
+
 interface ProjectContextType {
   projects: Project[]
+  ownedProjects: Project[]
+  sharedProjects: Project[]
   activeDialog: "create" | "rename" | "delete" | null
   activeProject: Project | null
   nameInput: string
-  slugPreview: string
+  roomIdPreview: string
   isLoading: boolean
   setNameInput: (name: string) => void
   openCreateDialog: () => void
   openRenameDialog: (project: Project) => void
   openDeleteDialog: (project: Project) => void
   closeDialog: () => void
-  handleCreateProject: () => void
-  handleRenameProject: () => void
-  handleDeleteProject: () => void
+  openProject: (projectId: string) => void
+  handleCreateProject: () => Promise<void>
+  handleRenameProject: () => Promise<void>
+  handleDeleteProject: () => Promise<void>
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined)
 
-export function ProjectProvider({ children }: { children: React.ReactNode }) {
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS)
+export function ProjectProvider({
+  ownedProjects: initialOwnedProjects,
+  sharedProjects: initialSharedProjects,
+  children,
+}: {
+  ownedProjects: ProjectListItem[]
+  sharedProjects: ProjectListItem[]
+  children: React.ReactNode
+}) {
+  const router = useRouter()
+  const pathname = usePathname()
   const [activeDialog, setActiveDialog] = useState<"create" | "rename" | "delete" | null>(null)
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const [nameInput, setNameInput] = useState<string>("")
+  const [roomIdSuffix, setRoomIdSuffix] = useState(createShortSuffix)
   const [isLoading, setIsLoading] = useState<boolean>(false)
 
-  const slugPreview = toSlug(nameInput)
+  const ownedProjects = useMemo<Project[]>(
+    () =>
+      initialOwnedProjects.map((project) => ({
+        ...project,
+        role: "owner",
+      })),
+    [initialOwnedProjects],
+  )
+  const sharedProjects = useMemo<Project[]>(
+    () =>
+      initialSharedProjects.map((project) => ({
+        ...project,
+        role: "collaborator",
+      })),
+    [initialSharedProjects],
+  )
+  const projects = useMemo(
+    () => [...ownedProjects, ...sharedProjects],
+    [ownedProjects, sharedProjects],
+  )
+  const roomIdPreview = `${toSlug(nameInput) || "untitled-project"}-${roomIdSuffix}`
 
   const openCreateDialog = () => {
     setNameInput("")
+    setRoomIdSuffix(createShortSuffix())
     setActiveProject(null)
     setActiveDialog("create")
   }
@@ -98,69 +117,111 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     setNameInput("")
   }
 
-  const handleCreateProject = () => {
+  const openProject = (projectId: string) => {
+    router.push(`/editor/${projectId}`)
+  }
+
+  const handleCreateProject = async () => {
     if (!nameInput.trim() || isLoading) return
     setIsLoading(true)
 
-    setTimeout(() => {
-      const newProj: Project = {
-        id: Math.random().toString(36).substring(2, 9),
-        name: nameInput.trim(),
-        slug: slugPreview || toSlug(nameInput),
-        role: "owner",
+    const projectName = nameInput.trim()
+    const projectId = roomIdPreview
+
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: projectId,
+          name: projectName,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to create project")
       }
-      setProjects((prev) => [...prev, newProj])
-      setIsLoading(false)
+
+      const { project } = (await response.json()) as { project: ProjectListItem }
+
       setActiveDialog(null)
+      setActiveProject(null)
       setNameInput("")
-    }, 800)
+      router.push(`/editor/${project.id}`)
+      router.refresh()
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleRenameProject = () => {
+  const handleRenameProject = async () => {
     if (!nameInput.trim() || !activeProject || isLoading) return
     setIsLoading(true)
 
-    setTimeout(() => {
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === activeProject.id
-            ? { ...p, name: nameInput.trim(), slug: toSlug(nameInput) }
-            : p
-        )
-      )
-      setIsLoading(false)
+    try {
+      const response = await fetch(`/api/projects/${activeProject.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nameInput.trim() }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to rename project")
+      }
+
       setActiveDialog(null)
       setActiveProject(null)
       setNameInput("")
-    }, 800)
+      router.refresh()
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleDeleteProject = () => {
+  const handleDeleteProject = async () => {
     if (!activeProject || isLoading) return
     setIsLoading(true)
+    const projectId = activeProject.id
 
-    setTimeout(() => {
-      setProjects((prev) => prev.filter((p) => p.id !== activeProject.id))
-      setIsLoading(false)
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete project")
+      }
+
       setActiveDialog(null)
       setActiveProject(null)
-    }, 800)
+      setNameInput("")
+      if (pathname === `/editor/${projectId}`) {
+        router.push("/editor")
+      } else {
+        router.refresh()
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
     <ProjectContext.Provider
       value={{
         projects,
+        ownedProjects,
+        sharedProjects,
         activeDialog,
         activeProject,
         nameInput,
-        slugPreview,
+        roomIdPreview,
         isLoading,
         setNameInput,
         openCreateDialog,
         openRenameDialog,
         openDeleteDialog,
         closeDialog,
+        openProject,
         handleCreateProject,
         handleRenameProject,
         handleDeleteProject,

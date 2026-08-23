@@ -18,7 +18,7 @@ export function ProjectDialogs() {
     activeDialog,
     activeProject,
     nameInput,
-    slugPreview,
+    roomIdPreview,
     isLoading,
     setNameInput,
     closeDialog,
@@ -64,9 +64,9 @@ export function ProjectDialogs() {
                 />
               </div>
               <div className="rounded-lg border border-surface-border bg-subtle p-3 text-xs text-copy-muted">
-                <p className="font-semibold text-copy-secondary mb-1">Slug Preview</p>
+                <p className="font-semibold text-copy-secondary mb-1">Room ID Preview</p>
                 <code className="font-mono text-brand font-medium">
-                  {slugPreview || "my-awesome-architecture"}
+                  {roomIdPreview}
                 </code>
               </div>
             </div>
@@ -104,7 +104,7 @@ export function ProjectDialogs() {
             <DialogHeader className="gap-1.5">
               <DialogTitle className="text-lg font-semibold text-copy-primary">Rename Project</DialogTitle>
               <DialogDescription className="text-sm text-copy-muted">
-                Rename your project from <strong className="text-copy-primary font-semibold">“{activeProject?.name}”</strong>.
+                Rename your project from <strong className="text-copy-primary font-semibold">&quot;{activeProject?.name}&quot;</strong>.
               </DialogDescription>
             </DialogHeader>
 
@@ -161,7 +161,7 @@ export function ProjectDialogs() {
             <DialogHeader className="gap-1.5">
               <DialogTitle className="text-lg font-semibold text-state-error">Delete Project</DialogTitle>
               <DialogDescription className="text-sm text-copy-muted">
-                Are you sure you want to delete the project <strong className="text-copy-primary font-semibold">“{activeProject?.name}”</strong>? This action is permanent and cannot be undone.
+                Are you sure you want to delete the project <strong className="text-copy-primary font-semibold">&quot;{activeProject?.name}&quot;</strong>? This action is permanent and cannot be undone.
               </DialogDescription>
             </DialogHeader>
 
