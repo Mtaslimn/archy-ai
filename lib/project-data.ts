@@ -3,6 +3,7 @@ import "server-only";
 import { currentUser } from "@clerk/nextjs/server";
 
 import { prisma } from "@/lib/prisma";
+import { normalizeEmail } from "@/lib/project-collaborators";
 
 export interface EditorProject {
   id: string;
@@ -14,8 +15,13 @@ export async function getEditorProjectLists(ownerId: string): Promise<{
   sharedProjects: EditorProject[];
 }> {
   const user = await currentUser();
-  const collaboratorEmails =
-    user?.emailAddresses.map((emailAddress) => emailAddress.emailAddress) ?? [];
+  const primaryEmailId = user?.primaryEmailAddressId;
+  const primaryEmail =
+    user?.emailAddresses.find(
+      (emailAddress) => emailAddress.id === primaryEmailId,
+    )?.emailAddress ??
+    user?.emailAddresses[0]?.emailAddress ??
+    null;
 
   const [ownedProjects, sharedProjects] = await Promise.all([
     prisma.project.findMany({
@@ -26,13 +32,13 @@ export async function getEditorProjectLists(ownerId: string): Promise<{
         name: true,
       },
     }),
-    collaboratorEmails.length
+    primaryEmail
       ? prisma.project.findMany({
           where: {
             ownerId: { not: ownerId },
             collaborators: {
               some: {
-                email: { in: collaboratorEmails },
+                email: normalizeEmail(primaryEmail),
               },
             },
           },

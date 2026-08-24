@@ -30,6 +30,7 @@ export default async function EditorWorkspacePage({
   return (
     <EditorWorkspaceShell
       project={project}
+      initialRole={project.ownerId === identity.userId ? "owner" : "collaborator"}
       ownedProjects={ownedProjects}
       sharedProjects={sharedProjects}
     />

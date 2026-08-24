@@ -8,7 +8,7 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Goal
 
-- All planned feature specs completed.
+- Implement share dialog from `context/feature-specs/09-share-dialog.md`.
 
 ## Completed
 
@@ -46,7 +46,7 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## In Progress
 
-- None.
+- Share dialog API and workspace UI.
 
 ## Next Up
 

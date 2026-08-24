@@ -1,10 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Bot, PanelRightClose, PanelRightOpen, Share2 } from "lucide-react"
+import { Bot, PanelRightClose, PanelRightOpen } from "lucide-react"
 
 import { EditorLayout } from "@/components/editor/editor-layout"
 import { ProjectDialogs } from "@/components/editor/project-dialogs"
+import { ShareDialog } from "@/components/editor/share-dialog"
 import { Button } from "@/components/ui/button"
 import {
   ProjectProvider,
@@ -13,6 +14,7 @@ import {
 
 interface EditorWorkspaceShellProps {
   project: ProjectListItem
+  initialRole: "owner" | "collaborator"
   ownedProjects: ProjectListItem[]
   sharedProjects: ProjectListItem[]
 }
@@ -52,7 +54,13 @@ function WorkspaceCanvasPlaceholder({
   )
 }
 
-function WorkspaceContent({ project }: { project: ProjectListItem }) {
+function WorkspaceContent({
+  project,
+  initialRole,
+}: {
+  project: ProjectListItem
+  initialRole: "owner" | "collaborator"
+}) {
   const [isAiSidebarOpen, setIsAiSidebarOpen] = useState(true)
   const AiSidebarIcon = isAiSidebarOpen ? PanelRightClose : PanelRightOpen
 
@@ -65,10 +73,11 @@ function WorkspaceContent({ project }: { project: ProjectListItem }) {
       }
       rightSlot={
         <div className="flex items-center gap-1">
-          <Button type="button" variant="ghost" size="sm">
-            <Share2 className="h-4 w-4" />
-            Share
-          </Button>
+          <ShareDialog
+            projectId={project.id}
+            projectName={project.name}
+            initialRole={initialRole}
+          />
           <Button
             type="button"
             variant="ghost"
@@ -94,6 +103,7 @@ function WorkspaceContent({ project }: { project: ProjectListItem }) {
 
 export function EditorWorkspaceShell({
   project,
+  initialRole,
   ownedProjects,
   sharedProjects,
 }: EditorWorkspaceShellProps) {
@@ -103,7 +113,7 @@ export function EditorWorkspaceShell({
       sharedProjects={sharedProjects}
       currentProjectId={project.id}
     >
-      <WorkspaceContent project={project} />
+      <WorkspaceContent project={project} initialRole={initialRole} />
       <ProjectDialogs />
     </ProjectProvider>
   )
