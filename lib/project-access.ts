@@ -4,6 +4,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 
 import type { Project } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { normalizeEmail } from "@/lib/project-collaborators";
 
 export interface ProjectIdentity {
   userId: string;
@@ -39,7 +40,7 @@ export async function getAccessibleProject(
         {
           collaborators: {
             some: {
-              email: identity.primaryEmail,
+              email: normalizeEmail(identity.primaryEmail),
             },
           },
         },
