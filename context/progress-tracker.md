@@ -4,7 +4,7 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Editor home wired to project APIs
+- Editor workspace shell complete
 
 ## Current Goal
 
@@ -38,6 +38,11 @@ Update this file whenever the current phase, active feature, or implementation s
 - Added room ID preview generation for project creation and aligned created project IDs with the Liveblocks room ID.
 - Added `/editor/[projectId]` as the workspace navigation target for newly created and opened projects.
 - Confirmed `npm run lint` and `npm run build` pass after wiring the editor home.
+- Implemented `/editor/[roomId]` workspace shell from [08-editor-workspace-shell.md](file:///c:/Users/MD.%20TASLIM%20KHAN/Desktop/archy/context/feature-specs/08-editor-workspace-shell.md) with server-side access checks.
+- Added `lib/project-access.ts` for Clerk project identity and owner/collaborator access checks.
+- Added `AccessDenied` for missing or unauthorized projects with a link back to `/editor`.
+- Added workspace layout with project-name navbar, share and AI sidebar controls, highlighted active project in the sidebar, canvas placeholder, and AI sidebar placeholder.
+- Confirmed `npm run lint` and `npm run build` pass after adding the workspace shell.
 
 ## In Progress
 
@@ -57,6 +62,7 @@ Update this file whenever the current phase, active feature, or implementation s
 - Runtime Prisma Client uses Accelerate when `DATABASE_URL` starts with `prisma+postgres://`; otherwise it uses a direct Postgres driver adapter.
 - Project API mutations require the authenticated Clerk user to be the project `ownerId`; list/create are scoped to that owner ID.
 - Project IDs are generated on create from the slugified project name plus a short unique suffix so the project ID and Liveblocks room ID can match.
+- Workspace access is granted only to project owners or collaborators matching the current user's primary Clerk email.
 
 ## Session Notes
 
@@ -67,3 +73,4 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/05-prisma.md` is implemented: schema models, cached Prisma client, first migration, and production build.
 - `context/feature-specs/06-project-apis.md` is implemented: backend-only project CRUD routes, owner checks, and production build.
 - `context/feature-specs/07-wire-editor-home.md` is implemented: server-side project list loading, real API-backed project mutations, workspace navigation, and production build.
+- `context/feature-specs/08-editor-workspace-shell.md` is implemented: server-side room access checks, AccessDenied, active-project shell UI, and production build.

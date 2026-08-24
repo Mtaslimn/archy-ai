@@ -34,6 +34,7 @@ interface ProjectContextType {
   projects: Project[]
   ownedProjects: Project[]
   sharedProjects: Project[]
+  currentProjectId: string | null
   activeDialog: "create" | "rename" | "delete" | null
   activeProject: Project | null
   nameInput: string
@@ -55,10 +56,12 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined)
 export function ProjectProvider({
   ownedProjects: initialOwnedProjects,
   sharedProjects: initialSharedProjects,
+  currentProjectId = null,
   children,
 }: {
   ownedProjects: ProjectListItem[]
   sharedProjects: ProjectListItem[]
+  currentProjectId?: string | null
   children: React.ReactNode
 }) {
   const router = useRouter()
@@ -211,6 +214,7 @@ export function ProjectProvider({
         projects,
         ownedProjects,
         sharedProjects,
+        currentProjectId,
         activeDialog,
         activeProject,
         nameInput,

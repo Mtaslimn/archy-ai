@@ -19,6 +19,7 @@ export function EditorNavbar({
   isSidebarOpen,
   onToggleSidebar,
   centerSlot,
+  rightSlot,
   className,
 }: EditorNavbarProps) {
   const SidebarIcon = isSidebarOpen ? PanelLeftClose : PanelLeftOpen
@@ -47,7 +48,8 @@ export function EditorNavbar({
         {centerSlot}
       </div>
 
-      <div className="flex min-w-0 items-center justify-end">
+      <div className="flex min-w-0 items-center justify-end gap-2">
+        {rightSlot}
         <UserButton />
       </div>
     </header>

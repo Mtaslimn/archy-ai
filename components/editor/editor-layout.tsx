@@ -8,10 +8,17 @@ import { cn } from "@/lib/utils"
 
 interface EditorLayoutProps {
   children: ReactNode
+  centerSlot?: ReactNode
+  rightSlot?: ReactNode
   className?: string
 }
 
-export function EditorLayout({ children, className }: EditorLayoutProps) {
+export function EditorLayout({
+  children,
+  centerSlot,
+  rightSlot,
+  className,
+}: EditorLayoutProps) {
   const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(false)
 
   return (
@@ -21,6 +28,8 @@ export function EditorLayout({ children, className }: EditorLayoutProps) {
         onToggleSidebar={() =>
           setIsProjectSidebarOpen((currentIsOpen) => !currentIsOpen)
         }
+        centerSlot={centerSlot}
+        rightSlot={rightSlot}
       />
 
       {/* Mobile Backdrop Scrim */}
