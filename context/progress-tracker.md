@@ -4,11 +4,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Editor workspace shell complete
+- Base collaborative canvas complete
 
 ## Current Goal
 
-- Implement share dialog from `context/feature-specs/09-share-dialog.md`.
+- Ready for review or additional feature specifications.
 
 ## Completed
 
@@ -43,10 +43,18 @@ Update this file whenever the current phase, active feature, or implementation s
 - Added `AccessDenied` for missing or unauthorized projects with a link back to `/editor`.
 - Added workspace layout with project-name navbar, share and AI sidebar controls, highlighted active project in the sidebar, canvas placeholder, and AI sidebar placeholder.
 - Confirmed `npm run lint` and `npm run build` pass after adding the workspace shell.
+- Configured `liveblocks.config.ts` with typed cursor presence, thinking state, and user metadata for display name, avatar URL, and cursor color.
+- Added `@liveblocks/node` and a cached Liveblocks server client in `lib/liveblocks.ts`.
+- Added deterministic cursor color assignment from Clerk user IDs.
+- Implemented `POST /api/liveblocks-auth` with Clerk authentication, existing project access checks, private room creation, and room-scoped Liveblocks session tokens.
+- Replaced the workspace canvas placeholder with a Liveblocks-backed React Flow canvas from `context/feature-specs/11-base-canvas.md`.
+- Added `components/editor/collaborative-canvas.tsx` with `LiveblocksProvider`, `RoomProvider`, initial presence, `ClientSideSuspense`, and a Liveblocks connection error fallback.
+- Wired `useLiveblocksFlow` with suspense, empty initial nodes/edges, loose connections, `fitView`, `MiniMap`, cursors, and a dot-pattern React Flow background.
+- Added shared canvas node/edge types in `types/canvas.ts`.
 
 ## In Progress
 
-- Share dialog API and workspace UI.
+- None.
 
 ## Next Up
 
@@ -63,6 +71,7 @@ Update this file whenever the current phase, active feature, or implementation s
 - Project API mutations require the authenticated Clerk user to be the project `ownerId`; list/create are scoped to that owner ID.
 - Project IDs are generated on create from the slugified project name plus a short unique suffix so the project ID and Liveblocks room ID can match.
 - Workspace access is granted only to project owners or collaborators matching the current user's primary Clerk email.
+- Liveblocks auth uses room-scoped session tokens after app-level project access checks; rooms are created private with `defaultAccesses: []`.
 
 ## Session Notes
 
@@ -74,3 +83,5 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/06-project-apis.md` is implemented: backend-only project CRUD routes, owner checks, and production build.
 - `context/feature-specs/07-wire-editor-home.md` is implemented: server-side project list loading, real API-backed project mutations, workspace navigation, and production build.
 - `context/feature-specs/08-editor-workspace-shell.md` is implemented: server-side room access checks, AccessDenied, active-project shell UI, and production build.
+- `context/feature-specs/10-liveblocks-setup.md` is implemented: typed Liveblocks config, server SDK client helper, deterministic cursor colors, and authenticated room-scoped token route.
+- `context/feature-specs/11-base-canvas.md` is implemented: server workspace page preserved, client Liveblocks room wrapper added, and React Flow now uses Liveblocks-synced nodes and edges.

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Bot, PanelRightClose, PanelRightOpen } from "lucide-react"
 
+import { CollaborativeCanvas } from "@/components/editor/collaborative-canvas"
 import { EditorLayout } from "@/components/editor/editor-layout"
 import { ProjectDialogs } from "@/components/editor/project-dialogs"
 import { ShareDialog } from "@/components/editor/share-dialog"
@@ -19,24 +20,17 @@ interface EditorWorkspaceShellProps {
   sharedProjects: ProjectListItem[]
 }
 
-function WorkspaceCanvasPlaceholder({
-  projectName,
+function WorkspaceCanvas({
+  roomId,
   isAiSidebarOpen,
 }: {
-  projectName: string
+  roomId: string
   isAiSidebarOpen: boolean
 }) {
   return (
     <div className="flex h-full min-h-0 bg-base">
-      <section className="flex min-w-0 flex-1 items-center justify-center bg-background px-6">
-        <div className="max-w-sm text-center">
-          <p className="text-sm font-medium text-copy-primary">
-            Canvas workspace for {projectName}
-          </p>
-          <p className="mt-2 text-sm leading-6 text-copy-muted">
-            Canvas, Liveblocks, and architecture editing will be added here later.
-          </p>
-        </div>
+      <section className="min-w-0 flex-1 bg-background">
+        <CollaborativeCanvas roomId={roomId} />
       </section>
 
       {isAiSidebarOpen && (
@@ -93,8 +87,8 @@ function WorkspaceContent({
         </div>
       }
     >
-      <WorkspaceCanvasPlaceholder
-        projectName={project.name}
+      <WorkspaceCanvas
+        roomId={project.id}
         isAiSidebarOpen={isAiSidebarOpen}
       />
     </EditorLayout>
