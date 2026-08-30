@@ -62,10 +62,13 @@ export function ProjectSidebar({
     <aside
       aria-hidden={!isOpen}
       className={cn(
-        "fixed left-3 top-17 bottom-3 z-40 flex w-[min(22rem,calc(100vw-1.5rem))] flex-col rounded-2xl border border-surface-border bg-surface/95 shadow-2xl shadow-background/40 backdrop-blur transition-transform duration-200 ease-out",
-        isOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]",
+        "fixed left-3 top-17 bottom-3 z-40 flex w-[min(22rem,calc(100vw-1.5rem))] flex-col rounded-2xl border border-surface-border bg-surface/95 shadow-2xl shadow-background/40 backdrop-blur transition-transform duration-300 ease-out",
+        isOpen ? "translate-x-0" : "-translate-x-full",
         className
       )}
+      style={{
+        transform: isOpen ? "translateX(0)" : "translateX(calc(-100% - 1.5rem))",
+      }}
     >
       {/* Sidebar Header */}
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-surface-border px-4">

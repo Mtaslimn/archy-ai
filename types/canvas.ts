@@ -1,6 +1,12 @@
 import type { Edge, Node } from "@xyflow/react";
 
-export type CanvasNodeShape = "rectangle" | "rounded" | "circle";
+export type CanvasNodeShape =
+  | "rectangle"
+  | "diamond"
+  | "circle"
+  | "pill"
+  | "cylinder"
+  | "hexagon";
 
 export type CanvasNodeData = {
   label: string;
