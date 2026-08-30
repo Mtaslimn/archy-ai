@@ -4,7 +4,7 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Base collaborative canvas complete
+- Shape panel and canvas node creation complete
 
 ## Current Goal
 
@@ -51,6 +51,10 @@ Update this file whenever the current phase, active feature, or implementation s
 - Added `components/editor/collaborative-canvas.tsx` with `LiveblocksProvider`, `RoomProvider`, initial presence, `ClientSideSuspense`, and a Liveblocks connection error fallback.
 - Wired `useLiveblocksFlow` with suspense, empty initial nodes/edges, loose connections, `fitView`, `MiniMap`, cursors, and a dot-pattern React Flow background.
 - Added shared canvas node/edge types in `types/canvas.ts`.
+- Added the bottom floating drag-and-drop shape panel for rectangle, diamond, circle, pill, cylinder, and hexagon shapes, including payload metadata and default sizes.
+- Added dragover/drop handling to create new nodes in canvas coordinates with the custom canvas node type and default color.
+- Added a basic custom renderer for all canvas node variants so new nodes render immediately on the canvas.
+- Verified the implementation with `npm run build`.
 
 ## In Progress
 
@@ -72,6 +76,7 @@ Update this file whenever the current phase, active feature, or implementation s
 - Project IDs are generated on create from the slugified project name plus a short unique suffix so the project ID and Liveblocks room ID can match.
 - Workspace access is granted only to project owners or collaborators matching the current user's primary Clerk email.
 - Liveblocks auth uses room-scoped session tokens after app-level project access checks; rooms are created private with `defaultAccesses: []`.
+- Canvas node IDs are generated from the shape name, timestamp, and incrementing counter, and new nodes use the `canvasNode` custom type.
 
 ## Session Notes
 
@@ -85,3 +90,4 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/08-editor-workspace-shell.md` is implemented: server-side room access checks, AccessDenied, active-project shell UI, and production build.
 - `context/feature-specs/10-liveblocks-setup.md` is implemented: typed Liveblocks config, server SDK client helper, deterministic cursor colors, and authenticated room-scoped token route.
 - `context/feature-specs/11-base-canvas.md` is implemented: server workspace page preserved, client Liveblocks room wrapper added, and React Flow now uses Liveblocks-synced nodes and edges.
+- `context/feature-specs/12-shape-panel.md` is implemented: drag-and-drop shape panel, canvas coordinate conversion, node creation, default node styling, and build verification.
