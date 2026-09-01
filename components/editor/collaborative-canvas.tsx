@@ -331,6 +331,7 @@ function CanvasNodeRenderer({ data, selected }: NodeProps<CanvasNode>) {
 
   return (
     <div
+      className="h-full w-full"
       style={{
         boxShadow: selected ? `0 0 0 2px ${data.color}66` : "none",
       }}
