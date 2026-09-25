@@ -4,11 +4,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Canvas shape system integration and fixes complete
+- Canvas ergonomics implementation complete and in build verification
 
 ## Current Goal
 
-- Ready for review or additional feature specifications.
+- Confirm the floating zoom/history control bar, Liveblocks undo/redo wiring, keyboard shortcuts, and overall React Flow canvas build cleanly.
 
 ## Completed
 
@@ -56,6 +56,9 @@ Update this file whenever the current phase, active feature, or implementation s
 - Added a basic custom renderer for all canvas node variants so new nodes render immediately on the canvas.
 - Verified the implementation with `npm run build`.
 - Unified canvas shape rendering, connection handles, per-shape colors, NodeResizer persistence, and label-edit isolation on the existing Liveblocks React Flow canvas.
+- Implemented a floating selected-node color toolbar that uses the existing predefined background/text palette, updates the node color immediately, and preserves collaborative canvas state without server calls.
+- Implemented custom canvas edges with arrowheads, hover/selection styling, right-angle routing, and inline label editing through the existing collaborative edge data flow.
+- Added the floating bottom-left canvas control bar with zoom controls and Liveblocks undo/redo actions, removed the minimap, and wired the same actions to keyboard shortcuts while ignoring editable fields.
 
 ## In Progress
 
