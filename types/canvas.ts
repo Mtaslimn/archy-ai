@@ -108,9 +108,11 @@ export type CanvasNodeData = {
 
 export type CanvasNode = Node<CanvasNodeData, "canvasNode">;
 
-export type CanvasEdgeData = Record<string, never>;
+export type CanvasEdgeData = {
+  label?: string;
+};
 
-export type CanvasEdge = Edge<CanvasEdgeData, "canvasEdge">;
+export type CanvasEdge = Edge<CanvasEdgeData, "canvasEdge" | "smoothstep">;
 
 export type ShapeDragPayload = {
   shape: CanvasNodeShape;

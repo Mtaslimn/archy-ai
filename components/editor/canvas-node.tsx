@@ -22,6 +22,7 @@ import {
 import { ShapeRenderer } from "@/components/editor/shape-renderer";
 import {
   MIN_NODE_SIZE,
+  NODE_COLORS,
   SHAPE_CONFIG,
   getNodeTextColor,
   type CanvasEdge,
@@ -57,6 +58,7 @@ export function CanvasNodeRenderer({
   const nodeHeight = height ?? shapeConfig.height;
   const textColor = getNodeTextColor(data.color);
   const borderColor = textColor;
+  const colorSwatches = Object.entries(NODE_COLORS);
 
   useEffect(() => {
     if (!isEditing) {
@@ -91,6 +93,22 @@ export function CanvasNodeRenderer({
                 ...node.style,
                 width: nextWidth,
                 height: nextHeight,
+              },
+            }
+          : node,
+      ),
+    );
+  };
+
+  const updateNodeColor = (nextColor: string) => {
+    setNodes((nodes) =>
+      nodes.map((node) =>
+        node.id === id
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                color: nextColor,
               },
             }
           : node,
@@ -134,6 +152,64 @@ export function CanvasNodeRenderer({
       className="group/canvas-node relative h-full w-full"
       onDoubleClick={handleDoubleClick}
     >
+      {selected && !isEditing ? (
+        <div
+          className="absolute left-1/2 top-0 z-30 -translate-x-1/2 -translate-y-[calc(100%+0.5rem)]"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onTouchStart={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <div className="flex items-center gap-1.5 rounded-full border border-border bg-surface/90 px-1.5 py-1.5 shadow-lg shadow-black/30 backdrop-blur-sm">
+            {colorSwatches.map(([name, pair]) => {
+              const isActive = data.color === pair.fill;
+              const glowColor = pair.text;
+
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  aria-label={`Use ${name} node color`}
+                  aria-pressed={isActive}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    updateNodeColor(pair.fill);
+                  }}
+                  className="relative flex h-5 w-5 items-center justify-center rounded-full border border-white/10 transition-transform duration-150 hover:scale-105"
+                  style={{
+                    backgroundColor: pair.fill,
+                    boxShadow: isActive
+                      ? `0 0 0 2px ${glowColor}99, 0 0 0 1px ${glowColor}bb inset, 0 0 10px ${glowColor}44`
+                      : `0 0 0 1px rgba(255,255,255,0.08)`,
+                  }}
+                  title={name}
+                >
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: pair.fill }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       <NodeResizer
         isVisible={Boolean(selected) && !isEditing}
         minWidth={MIN_NODE_SIZE}
