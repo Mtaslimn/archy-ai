@@ -2,9 +2,10 @@
 
 import {
   Component,
+  type ComponentProps,
   type DragEvent,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -18,68 +19,73 @@ import {
   Background,
   BackgroundVariant,
   ConnectionMode,
+  MarkerType,
   MiniMap,
   ReactFlow,
-  type NodeProps,
+  ReactFlowProvider,
+  useViewport,
   useReactFlow,
 } from "@xyflow/react";
 
-import type { CanvasEdge, CanvasNode, CanvasNodeShape } from "@/types/canvas";
+import { CanvasNodeRenderer } from "@/components/editor/canvas-node";
+import {
+  ScaledShapePreview,
+  ShapeRenderer,
+} from "@/components/editor/shape-renderer";
+import {
+  NODE_SHAPES,
+  SHAPE_CONFIG,
+  getNodeTextColor,
+  type CanvasEdge,
+  type CanvasNode,
+  type CanvasNodeShape,
+  type ShapeDragPayload,
+} from "@/types/canvas";
 
 interface CollaborativeCanvasProps {
   roomId: string;
 }
 
-type ShapeSize = {
-  width: number;
-  height: number;
+const nodeTypes = {
+  canvasNode: CanvasNodeRenderer,
 };
 
-type ShapeDragPayload = {
-  shape: CanvasNodeShape;
-  size: ShapeSize;
+const defaultEdgeOptions = {
+  type: "smoothstep" as const,
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+    color: "#f8fafc",
+  },
+  style: {
+    stroke: "#f8fafc",
+    strokeWidth: 1.25,
+  },
 };
 
-const DEFAULT_NODE_COLOR = "#00c8d4";
+function createCanvasNode(
+  shape: CanvasNodeShape,
+  position: { x: number; y: number },
+  counter: number,
+): CanvasNode {
+  const config = SHAPE_CONFIG[shape];
 
-const SHAPE_ITEMS: Array<{
-  shape: CanvasNodeShape;
-  label: string;
-  icon: string;
-  size: ShapeSize;
-}> = [
-  {
-    shape: "rectangle",
-    label: "Rectangle",
-    icon: "▭",
-    size: { width: 180, height: 110 },
-  },
-  {
-    shape: "diamond",
-    label: "Diamond",
-    icon: "◇",
-    size: { width: 180, height: 150 },
-  },
-  {
-    shape: "circle",
-    label: "Circle",
-    icon: "◯",
-    size: { width: 120, height: 120 },
-  },
-  { shape: "pill", label: "Pill", icon: "▱", size: { width: 170, height: 90 } },
-  {
-    shape: "cylinder",
-    label: "Cylinder",
-    icon: "⬡",
-    size: { width: 180, height: 120 },
-  },
-  {
-    shape: "hexagon",
-    label: "Hexagon",
-    icon: "⬢",
-    size: { width: 180, height: 140 },
-  },
-];
+  return {
+    id: `${shape}-${Date.now()}-${counter}`,
+    type: "canvasNode",
+    position,
+    width: config.width,
+    height: config.height,
+    style: {
+      width: config.width,
+      height: config.height,
+    },
+    data: {
+      label: "",
+      color: config.color,
+      shape,
+    },
+  };
+}
 
 class LiveblocksErrorBoundary extends Component<
   { children: ReactNode },
@@ -115,27 +121,41 @@ function CanvasLoading() {
 function ShapeToolbar({
   selectedShape,
   onSelectShape,
+  onShapeDragStart,
+  onShapeDragEnd,
 }: {
   selectedShape: CanvasNodeShape | null;
   onSelectShape: (shape: CanvasNodeShape) => void;
+  onShapeDragStart: (shape: CanvasNodeShape, x: number, y: number) => void;
+  onShapeDragEnd: () => void;
 }) {
   const handleDragStart = (
     event: DragEvent<HTMLButtonElement>,
     shape: CanvasNodeShape,
-    size: ShapeSize,
   ) => {
-    const payload: ShapeDragPayload = { shape, size };
+    const config = SHAPE_CONFIG[shape];
+    const payload: ShapeDragPayload = {
+      shape,
+      size: { width: config.width, height: config.height },
+    };
     event.dataTransfer.setData(
       "application/archy-shape",
       JSON.stringify(payload),
     );
     event.dataTransfer.effectAllowed = "copy";
+
+    const dragImage = document.createElement("canvas");
+    dragImage.width = 1;
+    dragImage.height = 1;
+    event.dataTransfer.setDragImage(dragImage, 0, 0);
+    onShapeDragStart(shape, event.clientX, event.clientY);
   };
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center px-4">
       <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-surface-border bg-surface/90 px-3 py-2 shadow-lg shadow-black/20 backdrop-blur-sm">
-        {SHAPE_ITEMS.map(({ shape, label, icon, size }) => {
+        {NODE_SHAPES.map((shape) => {
+          const config = SHAPE_CONFIG[shape];
           const isSelected = selectedShape === shape;
 
           return (
@@ -143,7 +163,8 @@ function ShapeToolbar({
               key={shape}
               type="button"
               draggable
-              onDragStart={(event) => handleDragStart(event, shape, size)}
+              onDragStart={(event) => handleDragStart(event, shape)}
+              onDragEnd={onShapeDragEnd}
               onClick={() => onSelectShape(shape)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
@@ -151,19 +172,21 @@ function ShapeToolbar({
                   onSelectShape(shape);
                 }
               }}
-              aria-label={`Add ${label}`}
+              aria-label={`Add ${config.label}`}
               aria-pressed={isSelected}
               className={[
-                "group flex h-12 w-12 items-center justify-center rounded-full border text-lg text-copy-primary transition hover:border-accent-primary/70 hover:bg-subtle",
+                "group flex h-12 w-12 items-center justify-center rounded-full border transition hover:border-accent-primary/70 hover:bg-subtle",
                 isSelected
                   ? "border-accent-primary bg-accent-primary/10"
                   : "border-surface-border bg-subtle/60",
               ].join(" ")}
-              title={label}
+              title={config.label}
             >
-              <span className="flex h-6 w-6 items-center justify-center rounded-md border border-surface-border bg-background/80 text-base font-semibold text-copy-primary">
-                {icon}
-              </span>
+              <ScaledShapePreview
+                shape={shape}
+                fillColor={config.color}
+                borderColor={config.textColor}
+              />
             </button>
           );
         })}
@@ -172,171 +195,38 @@ function ShapeToolbar({
   );
 }
 
-function CanvasNodeRenderer({ data, selected }: NodeProps<CanvasNode>) {
-  const fillColor = `${data.color}22`;
-  const selectedBorder = selected ? 2 : 1;
-  const shape = data.shape || "rectangle";
-
-  const renderShape = () => {
-    const commonClasses = "flex h-full w-full items-center justify-center text-center text-[11px] font-medium text-copy-primary relative";
-
-    switch (shape) {
-      case "rectangle":
-        return (
-          <div
-            className={`${commonClasses} border`}
-            style={{
-              backgroundColor: fillColor,
-              borderColor: data.color,
-              borderWidth: selectedBorder,
-              boxShadow: selected ? `0 0 0 2px ${data.color}66` : "none",
-            }}
-          >
-            <span className="px-2 text-center leading-none text-copy-primary">
-              {data.label}
-            </span>
-          </div>
-        );
-
-      case "circle":
-        return (
-          <div
-            className={`${commonClasses} rounded-full border`}
-            style={{
-              backgroundColor: fillColor,
-              borderColor: data.color,
-              borderWidth: selectedBorder,
-              boxShadow: selected ? `0 0 0 2px ${data.color}66` : "none",
-            }}
-          >
-            <span className="px-2 text-center leading-none text-copy-primary">
-              {data.label}
-            </span>
-          </div>
-        );
-
-      case "pill":
-        return (
-          <div
-            className={`${commonClasses} border`}
-            style={{
-              backgroundColor: fillColor,
-              borderColor: data.color,
-              borderWidth: selectedBorder,
-              borderRadius: "9999px",
-              boxShadow: selected ? `0 0 0 2px ${data.color}66` : "none",
-            }}
-          >
-            <span className="px-2 text-center leading-none text-copy-primary">
-              {data.label}
-            </span>
-          </div>
-        );
-
-      case "diamond": {
-        return (
-          <div className={commonClasses} style={{ position: "relative" }}>
-            <svg
-              viewBox="0 0 100 100"
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-              }}
-            >
-              <polygon
-                points="50,5 95,50 50,95 5,50"
-                fill={fillColor}
-                stroke={data.color}
-                strokeWidth={selectedBorder * 1.5}
-              />
-            </svg>
-            <span className="px-2 text-center leading-none text-copy-primary relative z-10">
-              {data.label}
-            </span>
-          </div>
-        );
-      }
-
-      case "hexagon": {
-        return (
-          <div className={commonClasses} style={{ position: "relative" }}>
-            <svg
-              viewBox="0 0 120 120"
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-              }}
-            >
-              <polygon
-                points="30,5 90,5 115,60 90,115 30,115 5,60"
-                fill={fillColor}
-                stroke={data.color}
-                strokeWidth={selectedBorder * 1.5}
-              />
-            </svg>
-            <span className="px-2 text-center leading-none text-copy-primary relative z-10">
-              {data.label}
-            </span>
-          </div>
-        );
-      }
-
-      case "cylinder": {
-        return (
-          <div className={commonClasses} style={{ position: "relative" }}>
-            <svg
-              viewBox="0 0 100 120"
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-              }}
-            >
-              <g>
-                <ellipse cx="50" cy="15" rx="30" ry="12" fill={fillColor} stroke={data.color} strokeWidth={selectedBorder * 1.5} />
-                <rect x="20" y="15" width="60" height="70" fill={fillColor} stroke={data.color} strokeWidth={selectedBorder * 1.5} />
-                <ellipse cx="50" cy="85" rx="30" ry="12" fill={fillColor} stroke={data.color} strokeWidth={selectedBorder * 1.5} />
-              </g>
-            </svg>
-            <span className="px-2 text-center leading-none text-copy-primary relative z-10">
-              {data.label}
-            </span>
-          </div>
-        );
-      }
-
-      default:
-        return (
-          <div
-            className={`${commonClasses} border`}
-            style={{
-              backgroundColor: fillColor,
-              borderColor: data.color,
-              borderWidth: selectedBorder,
-              boxShadow: selected ? `0 0 0 2px ${data.color}66` : "none",
-            }}
-          >
-            <span className="px-2 text-center leading-none text-copy-primary">
-              {data.label}
-            </span>
-          </div>
-        );
-    }
-  };
+function ShapeGhostPreview({
+  shape,
+  x,
+  y,
+  zoom,
+}: {
+  shape: CanvasNodeShape;
+  x: number;
+  y: number;
+  zoom: number;
+}) {
+  const config = SHAPE_CONFIG[shape];
 
   return (
     <div
-      className="h-full w-full"
+      className="pointer-events-none fixed z-50 opacity-80"
       style={{
-        boxShadow: selected ? `0 0 0 2px ${data.color}66` : "none",
+        left: x,
+        top: y,
+        transform: `scale(${zoom})`,
+        transformOrigin: "top left",
       }}
     >
-      {renderShape()}
+      <ShapeRenderer
+        shape={shape}
+        width={config.width}
+        height={config.height}
+        fillColor={config.color}
+        borderColor={getNodeTextColor(config.color)}
+        textColor={config.textColor}
+        label=""
+      />
     </div>
   );
 }
@@ -380,7 +270,7 @@ function FlowCanvas({
   const handlePaneClick = (
     event: Parameters<
       NonNullable<
-        React.ComponentProps<
+        ComponentProps<
           typeof ReactFlow<CanvasNode, CanvasEdge>
         >["onPaneClick"]
       >
@@ -390,10 +280,7 @@ function FlowCanvas({
       return;
     }
 
-    const acceptedShape = SHAPE_ITEMS.find(
-      (shapeItem) => shapeItem.shape === selectedShape,
-    );
-    if (!acceptedShape) {
+    if (!SHAPE_CONFIG[selectedShape]) {
       setSelectedShape(null);
       return;
     }
@@ -404,20 +291,10 @@ function FlowCanvas({
     });
 
     dropCounter.current += 1;
-    const newNode: CanvasNode = {
-      id: `${selectedShape}-${Date.now()}-${dropCounter.current}`,
-      type: "canvasNode",
-      position,
-      width: acceptedShape.size.width,
-      height: acceptedShape.size.height,
-      data: {
-        label: "",
-        color: DEFAULT_NODE_COLOR,
-        shape: selectedShape,
-      },
-    };
-
-    setNodes((currentNodes) => [...currentNodes, newNode]);
+    setNodes((currentNodes) => [
+      ...currentNodes,
+      createCanvasNode(selectedShape, position, dropCounter.current),
+    ]);
     setSelectedShape(null);
   };
 
@@ -433,28 +310,11 @@ function FlowCanvas({
       const payload = JSON.parse(rawPayload) as Partial<ShapeDragPayload>;
       const matchedShape =
         typeof payload?.shape === "string" &&
-        SHAPE_ITEMS.some((shapeItem) => shapeItem.shape === payload.shape)
+        NODE_SHAPES.includes(payload.shape as CanvasNodeShape)
           ? (payload.shape as CanvasNodeShape)
           : null;
 
-      if (!matchedShape || !payload?.size) {
-        return;
-      }
-
-      const { width, height } = payload.size;
-      if (
-        !Number.isFinite(width) ||
-        !Number.isFinite(height) ||
-        width <= 0 ||
-        height <= 0
-      ) {
-        return;
-      }
-
-      const acceptedShape = SHAPE_ITEMS.find(
-        (shapeItem) => shapeItem.shape === matchedShape,
-      );
-      if (!acceptedShape) {
+      if (!matchedShape) {
         return;
       }
 
@@ -464,27 +324,13 @@ function FlowCanvas({
       });
 
       dropCounter.current += 1;
-      const newNode: CanvasNode = {
-        id: `${matchedShape}-${Date.now()}-${dropCounter.current}`,
-        type: "canvasNode",
-        position,
-        width: acceptedShape.size.width,
-        height: acceptedShape.size.height,
-        data: {
-          label: "",
-          color: DEFAULT_NODE_COLOR,
-          shape: matchedShape,
-        },
-      };
-
-      setNodes((currentNodes) => [...currentNodes, newNode]);
+      setNodes((currentNodes) => [
+        ...currentNodes,
+        createCanvasNode(matchedShape, position, dropCounter.current),
+      ]);
     } catch {
       // Ignore malformed drag payloads.
     }
-  };
-
-  const nodeTypes = {
-    canvasNode: CanvasNodeRenderer,
   };
 
   return (
@@ -492,6 +338,7 @@ function FlowCanvas({
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
+      defaultEdgeOptions={defaultEdgeOptions}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
@@ -521,9 +368,9 @@ function FlowCanvas({
     </ReactFlow>
   );
 }
-import { ReactFlowProvider } from "@xyflow/react";
 
 function SyncedReactFlowCanvas() {
+  const { zoom } = useViewport();
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, onDelete } =
     useLiveblocksFlow<CanvasNode, CanvasEdge>({
       suspense: true,
@@ -534,6 +381,40 @@ function SyncedReactFlowCanvas() {
   const [selectedShape, setSelectedShape] = useState<CanvasNodeShape | null>(
     null,
   );
+  const [ghost, setGhost] = useState<{
+    shape: CanvasNodeShape;
+    x: number;
+    y: number;
+  } | null>(null);
+  const isDraggingShape = ghost !== null;
+
+  useEffect(() => {
+    if (!isDraggingShape) {
+      return;
+    }
+
+    const updatePosition = (event: globalThis.DragEvent) => {
+      setGhost((current) =>
+        current
+          ? { ...current, x: event.clientX, y: event.clientY }
+          : current,
+      );
+    };
+
+    const clearGhost = () => {
+      setGhost(null);
+    };
+
+    window.addEventListener("dragover", updatePosition);
+    window.addEventListener("drop", clearGhost);
+    window.addEventListener("dragend", clearGhost);
+
+    return () => {
+      window.removeEventListener("dragover", updatePosition);
+      window.removeEventListener("drop", clearGhost);
+      window.removeEventListener("dragend", clearGhost);
+    };
+  }, [isDraggingShape]);
 
   return (
     <ReactFlowProvider>
@@ -551,11 +432,22 @@ function SyncedReactFlowCanvas() {
         <ShapeToolbar
           selectedShape={selectedShape}
           onSelectShape={setSelectedShape}
+          onShapeDragStart={(shape, x, y) => setGhost({ shape, x, y })}
+          onShapeDragEnd={() => setGhost(null)}
         />
+        {ghost ? (
+          <ShapeGhostPreview
+            shape={ghost.shape}
+            x={ghost.x}
+            y={ghost.y}
+            zoom={zoom}
+          />
+        ) : null}
       </div>
     </ReactFlowProvider>
   );
 }
+
 export function CollaborativeCanvas({ roomId }: CollaborativeCanvasProps) {
   return (
     <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
