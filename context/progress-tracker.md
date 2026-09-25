@@ -4,7 +4,7 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Shape panel and canvas node creation complete
+- Canvas shape system integration and fixes complete
 
 ## Current Goal
 
@@ -55,6 +55,7 @@ Update this file whenever the current phase, active feature, or implementation s
 - Added dragover/drop handling to create new nodes in canvas coordinates with the custom canvas node type and default color.
 - Added a basic custom renderer for all canvas node variants so new nodes render immediately on the canvas.
 - Verified the implementation with `npm run build`.
+- Unified canvas shape rendering, connection handles, per-shape colors, NodeResizer persistence, and label-edit isolation on the existing Liveblocks React Flow canvas.
 
 ## In Progress
 
@@ -77,6 +78,8 @@ Update this file whenever the current phase, active feature, or implementation s
 - Workspace access is granted only to project owners or collaborators matching the current user's primary Clerk email.
 - Liveblocks auth uses room-scoped session tokens after app-level project access checks; rooms are created private with `defaultAccesses: []`.
 - Canvas node IDs are generated from the shape name, timestamp, and incrementing counter, and new nodes use the `canvasNode` custom type.
+- Canvas shapes share one `SHAPE_CONFIG` and `ShapeRenderer` for the panel, ghost preview, and nodes. Fill colors live on `node.data.color` and default per shape from the node color palette.
+- Node size is stored on the React Flow node (`width`, `height`, and `style`) and synced through `useLiveblocksFlow` / `onNodesChange`. Edges use the existing `onConnect` handler.
 
 ## Session Notes
 
@@ -91,3 +94,4 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/10-liveblocks-setup.md` is implemented: typed Liveblocks config, server SDK client helper, deterministic cursor colors, and authenticated room-scoped token route.
 - `context/feature-specs/11-base-canvas.md` is implemented: server workspace page preserved, client Liveblocks room wrapper added, and React Flow now uses Liveblocks-synced nodes and edges.
 - `context/feature-specs/12-shape-panel.md` is implemented: drag-and-drop shape panel, canvas coordinate conversion, node creation, default node styling, and build verification.
+- Canvas shape-system fixes: shared renderer, React Flow handles and edges, per-shape colors, `@xyflow/react` NodeResizer, and isolated label editing.

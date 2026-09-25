@@ -138,3 +138,13 @@
     @apply font-sans;
   }
 }
+
+.react-flow__node .canvas-node-handle {
+  opacity: 0;
+}
+
+.react-flow__node:hover .canvas-node-handle,
+.react-flow__node.selected .canvas-node-handle,
+.react-flow__node:focus-within .canvas-node-handle {
+  opacity: 1;
+}
