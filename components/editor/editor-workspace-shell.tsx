@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { LiveblocksProvider, RoomProvider } from "@liveblocks/react/suspense";
+import { useCreateFeed, useFeeds } from "@liveblocks/react";
 import {
   AlertCircle,
   Check,
@@ -29,6 +31,61 @@ interface EditorWorkspaceShellProps {
   sharedProjects: ProjectListItem[];
 }
 
+function RoomWorkspaceContent({
+  roomId,
+  isAiSidebarOpen,
+  onCloseAiSidebar,
+  onSaveStatusChange,
+  onRegisterSaveAction,
+}: {
+  roomId: string;
+  isAiSidebarOpen: boolean;
+  onCloseAiSidebar: () => void;
+  onSaveStatusChange: (status: CanvasSaveStatus) => void;
+  onRegisterSaveAction: (saveAction: () => void) => void;
+}) {
+  const createFeed = useCreateFeed();
+  const { feeds, isLoading, error } = useFeeds();
+  const [isStatusFeedReady, setIsStatusFeedReady] = useState(false);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (error || feeds?.some((feed) => feed.feedId === "ai-status-feed")) {
+      setIsStatusFeedReady(true);
+      return;
+    }
+
+    let isMounted = true;
+    void createFeed("ai-status-feed", { metadata: { name: "AI status" } })
+      .catch(() => {
+        // The feed may have been created by a concurrent task or room client.
+      })
+      .finally(() => {
+        if (isMounted) setIsStatusFeedReady(true);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [createFeed, error, feeds, isLoading]);
+
+  return (
+    <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-base">
+      <section className="h-full w-full flex-1 bg-base">
+        <CollaborativeCanvas
+          roomId={roomId}
+          onSaveStatusChange={onSaveStatusChange}
+          onRegisterSaveAction={onRegisterSaveAction}
+        />
+      </section>
+
+      {isStatusFeedReady ? (
+        <AiSidebar roomId={roomId} isOpen={isAiSidebarOpen} onClose={onCloseAiSidebar} />
+      ) : null}
+    </div>
+  );
+}
+
 function WorkspaceCanvas({
   roomId,
   isAiSidebarOpen,
@@ -43,17 +100,17 @@ function WorkspaceCanvas({
   onRegisterSaveAction: (saveAction: () => void) => void;
 }) {
   return (
-    <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-base">
-      <section className="h-full w-full flex-1 bg-base">
-        <CollaborativeCanvas
+    <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
+      <RoomProvider id={roomId} initialPresence={{ cursor: null, thinking: false }}>
+        <RoomWorkspaceContent
           roomId={roomId}
+          isAiSidebarOpen={isAiSidebarOpen}
+          onCloseAiSidebar={onCloseAiSidebar}
           onSaveStatusChange={onSaveStatusChange}
           onRegisterSaveAction={onRegisterSaveAction}
         />
-      </section>
-
-      <AiSidebar isOpen={isAiSidebarOpen} onClose={onCloseAiSidebar} />
-    </div>
+      </RoomProvider>
+    </LiveblocksProvider>
   );
 }
 

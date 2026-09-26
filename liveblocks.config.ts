@@ -2,7 +2,7 @@ declare global {
   interface Liveblocks {
     Presence: {
       cursor: { x: number; y: number } | null;
-      thinking: boolean;
+      thinking?: boolean;
     };
 
     Storage: Record<string, never>;
@@ -16,7 +16,12 @@ declare global {
       };
     };
 
-    RoomEvent: Record<string, never>;
+    RoomEvent: {
+      type: "AI_CANVAS_ACTION";
+      action: import("@liveblocks/client").JsonObject;
+    };
+
+    FeedMessageData: import("./types/tasks").AiStatusFeedMessage;
 
     ThreadMetadata: Record<string, never>;
 
