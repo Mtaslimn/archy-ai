@@ -5,14 +5,14 @@ import {
   useCanRedo,
   useCanUndo,
   useMyPresence,
+  useOther,
   useOthers,
   useRedo,
   useUndo,
+  useEventListener,
 } from "@liveblocks/react";
 import {
   ClientSideSuspense,
-  LiveblocksProvider,
-  RoomProvider,
 } from "@liveblocks/react/suspense";
 import {
   Component,
@@ -24,7 +24,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { Cursors, useLiveblocksFlow } from "@liveblocks/react-flow";
+import { Cursors, useLiveblocksFlow, type CursorsCursorProps } from "@liveblocks/react-flow";
+import { Cursor as LiveCursor } from "@liveblocks/react-ui";
+import { useUser as useLiveblocksUser } from "@liveblocks/react";
+import { LoaderCircle } from "lucide-react";
 import {
   Background,
   BackgroundVariant,
@@ -64,6 +67,25 @@ import {
   type CanvasNodeShape,
   type ShapeDragPayload,
 } from "@/types/canvas";
+
+function ThinkingCursor({ userId, connectionId }: CursorsCursorProps) {
+  const { user, isLoading } = useLiveblocksUser(userId);
+  const thinking = useOther(connectionId, (other) => other.presence.thinking === true);
+
+  if (isLoading) return null;
+
+  return (
+    <LiveCursor
+      color={user?.cursorColor}
+      label={
+        <span className="inline-flex items-center gap-1.5">
+          {user?.displayName ?? "Collaborator"}
+          {thinking ? <LoaderCircle aria-label="Thinking" className="h-3 w-3 animate-spin" /> : null}
+        </span>
+      }
+    />
+  );
+}
 
 interface CollaborativeCanvasProps {
   roomId: string;
@@ -666,7 +688,7 @@ function FlowCanvas({
         size={1.4}
         color="rgba(240, 240, 244, 0.18)"
       />
-      <Cursors />
+      <Cursors components={{ Cursor: ThinkingCursor }} />
     </ReactFlow>
     </CanvasNodeDeleteContext.Provider>
   );
@@ -700,6 +722,58 @@ function SyncedReactFlowCanvas({
       nodes: { initial: [] },
       edges: { initial: [] },
     });
+
+  useEventListener(({ event }) => {
+    if (event.type !== "AI_CANVAS_ACTION") return;
+    const action = event.action as unknown as import("@/types/canvas").DesignAction;
+
+    switch (action.type) {
+      case "add_node":
+        onNodesChange([{ type: "add", item: action.node }]);
+        break;
+      case "move_node":
+        onNodesChange([{
+          type: "position",
+          id: action.nodeId,
+          position: action.position,
+          dragging: false,
+        }]);
+        break;
+      case "resize_node":
+        onNodesChange([{
+          type: "dimensions",
+          id: action.nodeId,
+          dimensions: { width: action.width, height: action.height },
+          setAttributes: true,
+        }]);
+        break;
+      case "update_node_data": {
+        const node = nodes.find((item) => item.id === action.nodeId);
+        if (!node) break;
+        onNodesChange([{
+          type: "replace",
+          id: action.nodeId,
+          item: { ...node, data: { ...node.data, ...action.data } },
+        }]);
+        break;
+      }
+      case "delete_node": {
+        const node = nodes.find((item) => item.id === action.nodeId);
+        if (!node) break;
+        onDelete({
+          nodes: [node],
+          edges: edges.filter((edge) => edge.source === node.id || edge.target === node.id),
+        });
+        break;
+      }
+      case "add_edge":
+        onEdgesChange([{ type: "add", item: action.edge }]);
+        break;
+      case "delete_edge":
+        onEdgesChange([{ type: "remove", id: action.edgeId }]);
+        break;
+    }
+  });
   const [isCanvasReady, setIsCanvasReady] = useState(false);
   const canvasRootRef = useRef<HTMLDivElement>(null);
   const hasCheckedSavedCanvasRef = useRef(false);
@@ -1001,23 +1075,16 @@ export function CollaborativeCanvas({
   onRegisterSaveAction,
 }: CollaborativeCanvasProps) {
   return (
-    <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
-      <RoomProvider
-        id={roomId}
-        initialPresence={{ cursor: null, thinking: false }}
-      >
-        <ReactFlowProvider>
-          <LiveblocksErrorBoundary>
-            <ClientSideSuspense fallback={<CanvasLoading />}>
-              <SyncedReactFlowCanvas
-                roomId={roomId}
-                onSaveStatusChange={onSaveStatusChange}
-                onRegisterSaveAction={onRegisterSaveAction}
-              />
-            </ClientSideSuspense>
-          </LiveblocksErrorBoundary>
-        </ReactFlowProvider>
-      </RoomProvider>
-    </LiveblocksProvider>
+    <ReactFlowProvider>
+      <LiveblocksErrorBoundary>
+        <ClientSideSuspense fallback={<CanvasLoading />}>
+          <SyncedReactFlowCanvas
+            roomId={roomId}
+            onSaveStatusChange={onSaveStatusChange}
+            onRegisterSaveAction={onRegisterSaveAction}
+          />
+        </ClientSideSuspense>
+      </LiveblocksErrorBoundary>
+    </ReactFlowProvider>
   );
 }

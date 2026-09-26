@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useFeedMessages } from "@liveblocks/react";
 import {
   ArrowUp,
   Bot,
   Download,
   FileText,
+  LoaderCircle,
   Sparkles,
   X,
 } from "lucide-react";
@@ -13,8 +15,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { isAiStatusFeedMessage } from "@/types/tasks";
 
 interface AiSidebarProps {
+  roomId: string;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -24,6 +28,7 @@ const starterPrompts = [
   "Create a chat app architecture",
   "Build a CI/CD pipeline",
 ];
+const STATUS_FRESHNESS_MS = 180_000;
 
 function inertWorkspaceBackground(panel: HTMLElement) {
   const editorMain = panel.closest("main");
@@ -57,11 +62,79 @@ function inertWorkspaceBackground(panel: HTMLElement) {
   };
 }
 
-export function AiSidebar({ isOpen, onClose }: AiSidebarProps) {
+export function AiSidebar({ roomId, isOpen, onClose }: AiSidebarProps) {
   const panelRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasFreshActiveStatus, setHasFreshActiveStatus] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const { messages } = useFeedMessages("ai-status-feed");
+  const latestStatusMessage = [...(messages ?? [])]
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((message) => isAiStatusFeedMessage(message.data)
+      ? { ...message.data, createdAt: message.createdAt }
+      : null)
+    .filter((message) => message !== null)
+    .at(-1);
+  const isGenerating = isSubmitting || hasFreshActiveStatus;
+  const latestStatus = latestStatusMessage?.status;
+  const latestStatusCreatedAt = latestStatusMessage?.createdAt;
+
+  useEffect(() => {
+    let expirationTimeoutId: number | undefined;
+    const statusCheckTimeoutId = window.setTimeout(() => {
+      if (
+        latestStatusCreatedAt === undefined
+        || (latestStatus !== "start" && latestStatus !== "processing")
+      ) {
+        setHasFreshActiveStatus(false);
+        return;
+      }
+
+      const remainingFreshness = latestStatusCreatedAt + STATUS_FRESHNESS_MS - Date.now();
+      if (remainingFreshness <= 0) {
+        setHasFreshActiveStatus(false);
+        return;
+      }
+
+      setHasFreshActiveStatus(true);
+      expirationTimeoutId = window.setTimeout(
+        () => setHasFreshActiveStatus(false),
+        remainingFreshness,
+      );
+    }, 0);
+
+    return () => {
+      window.clearTimeout(statusCheckTimeoutId);
+      if (expirationTimeoutId !== undefined) window.clearTimeout(expirationTimeoutId);
+    };
+  }, [latestStatus, latestStatusCreatedAt]);
+
+  const submitPrompt = async () => {
+    const cleanPrompt = prompt.trim();
+    if (!cleanPrompt || isGenerating) return;
+    setRequestError(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/ai/design", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: cleanPrompt, projectId: roomId, roomId }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(result?.error ?? "Unable to start AI design generation.");
+      }
+      setPrompt("");
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Unable to start AI design generation.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
@@ -185,8 +258,9 @@ export function AiSidebar({ isOpen, onClose }: AiSidebarProps) {
               <p className="truncate text-xs text-copy-muted">
                 Collaborate with Ghost AI
               </p>
-              <span className="mt-1 inline-flex rounded-full border border-surface-border px-1.5 py-0.5 text-[10px] leading-none text-copy-muted">
-                Preview only
+                <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-surface-border px-1.5 py-0.5 text-[10px] leading-none text-copy-muted">
+                  {isGenerating ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-ai-text" /> : null}
+                  {isGenerating ? "Generating" : "Live AI"}
               </span>
             </div>
           </div>
@@ -228,13 +302,20 @@ export function AiSidebar({ isOpen, onClose }: AiSidebarProps) {
                 </span>
                 <div className="space-y-1">
                   <h3 className="text-sm font-medium text-copy-primary">
-                    Start with an idea
+                    {isGenerating ? "Updating the shared canvas" : "Start with an idea"}
                   </h3>
                   <p className="text-xs leading-5 text-copy-muted">
-                    AI generation is not connected yet. Explore the chat preview
-                    with a starter prompt.
+                    {isGenerating
+                      ? "Archy AI is working. Updates appear live for everyone in this room."
+                      : "Describe the system you want to design or extend the current canvas."}
                   </p>
                 </div>
+                {latestStatusMessage?.text ? (
+                  <p aria-live="polite" className="w-full rounded-lg border border-surface-border bg-elevated px-3 py-2 text-left text-xs text-copy-muted">
+                    {latestStatusMessage.text}
+                  </p>
+                ) : null}
+                {requestError ? <p role="alert" className="text-xs text-state-error">{requestError}</p> : null}
                 <div className="flex w-full flex-col items-center gap-2">
                   {starterPrompts.map((starterPrompt) => (
                     <Button
@@ -255,22 +336,34 @@ export function AiSidebar({ isOpen, onClose }: AiSidebarProps) {
             <div className="mt-3 shrink-0 border-t border-surface-border pt-3">
               <div className="relative">
                 <Textarea
-                  aria-label="AI chat preview prompt"
-                  placeholder="AI responses are not connected yet"
+                  aria-label="AI design prompt"
+                  placeholder="Describe a system architecture..."
                   value={prompt}
+                  disabled={isGenerating}
                   onChange={(event) => setPrompt(event.target.value)}
                   rows={2}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void submitPrompt();
+                    }
+                  }}
                   className="max-h-40 min-h-[72px] resize-none overflow-y-auto field-sizing-content border-surface-border bg-elevated pr-11 text-sm placeholder:text-copy-muted"
                 />
                 <Button
                   type="button"
                   size="icon-sm"
-                  aria-label="AI responses are unavailable"
-                  title="AI generation is not connected yet"
-                  disabled
+                  aria-label="Generate design"
+                  title="Generate design"
+                  disabled={!prompt.trim() || isGenerating}
+                  onClick={() => void submitPrompt()}
                   className="absolute right-2 bottom-2 bg-brand text-background hover:bg-brand/90"
                 >
-                  <ArrowUp className="h-4 w-4" />
+                  {isGenerating ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowUp className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </div>

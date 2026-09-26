@@ -4,11 +4,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Canvas autosave and loading complete and verified
+- AI presence state
 
 ## Current Goal
 
-- Canvas autosave and loading from [21-canvas-autosave.md](feature-specs/21-canvas-autosave.md) are implemented, production-build clean, and scoped to empty Liveblocks rooms for restore.
+- AI presence state from [24-ai-presence-state.md](feature-specs/24-ai-presence-state.md) is implemented and production-build verified.
 
 ## Completed
 
@@ -73,6 +73,20 @@ Update this file whenever the current phase, active feature, or implementation s
 - Added the editor Save button with immediate save action and visible saving, saved, and error states.
 - Updated project storage context to document Vercel Blob snapshots and the Prisma URL reference.
 - Confirmed `npm run build` and ESLint on all changed source files pass. Full `npm run lint` still reports the existing `canvas-node.tsx` set-state-in-effect error.
+- Added the authenticated `POST /api/ai/design` route, which checks project access, triggers the `design-agent` task, stores the run ID with its initiating user and project, and returns the run ID.
+- Added the authenticated `POST /api/ai/design/token` route, which checks the TaskRun owner and returns a Trigger.dev public token scoped to read that run.
+- Added the minimal `trigger/design-agent.ts` task to log and echo the prompt and room ID without AI or canvas changes.
+- Added the Prisma `TaskRun` model and additive SQL migration with a unique run ID and requested indexes.
+- Confirmed Prisma Client generation and `next build` pass with both design API routes included.
+- Replaced the design task prompt echo with Gemini structured design planning using the existing node shapes, color palette, and current canvas graph as context.
+- Added validation for all requested canvas actions and broadcasts each action into the room for the existing `useLiveblocksFlow` change handlers to apply collaboratively.
+- Added AI cursor and thinking presence with expiring Liveblocks presence updates, plus start, processing, complete, and error status events.
+- Connected the AI sidebar to the design API, shared room status events, visible activity history, and request error handling; moved the room provider to include both canvas and sidebar.
+- Confirmed `npm run build` passes after implementing the design agent logic.
+- Added the shared `ai-status-feed` room feed with validated generic status messages and latest-message-only rendering in the AI sidebar.
+- Disabled the AI prompt during shared generation and added visible generating indicators to the sidebar status and send button.
+- Added a thinking spinner to live cursor name badges when collaborator presence has `thinking: true`.
+- Confirmed `npm run build` passes after implementing AI presence state.
 
 ## In Progress
 
@@ -93,6 +107,9 @@ Update this file whenever the current phase, active feature, or implementation s
 - Project API mutations require the authenticated Clerk user to be the project `ownerId`; list/create are scoped to that owner ID.
 - Project IDs are generated on create from the slugified project name plus a short unique suffix so the project ID and Liveblocks room ID can match.
 - Workspace access is granted only to project owners or collaborators matching the current user's primary Clerk email.
+- Design task requests require access to the project and require `roomId` to match the project ID. Each Trigger.dev run is recorded against the initiating Clerk user and project; its public token grants read access to that run only.
+- AI canvas mutations are broadcast as typed Liveblocks room events and applied by connected clients through the existing `useLiveblocksFlow` change handlers. AI presence uses short-lived Liveblocks presence with cursor and thinking fields.
+- AI activity status is written to a room-scoped Liveblocks `ai-status-feed`; sidebar clients validate and display only the latest message.
 - Liveblocks auth uses room-scoped session tokens after app-level project access checks; rooms are created private with `defaultAccesses: []`.
 - Canvas node IDs are generated from the shape name, timestamp, and incrementing counter, and new nodes use the `canvasNode` custom type.
 - Canvas shapes share one `SHAPE_CONFIG` and `ShapeRenderer` for the panel, ghost preview, and nodes. Fill colors live on `node.data.color` and default per shape from the node color palette.
@@ -114,3 +131,6 @@ Update this file whenever the current phase, active feature, or implementation s
 - Canvas shape-system fixes: shared renderer, React Flow handles and edges, per-shape colors, `@xyflow/react` NodeResizer, and isolated label editing.
 - `context/feature-specs/20-ai-sidebar-shell.md` is implemented: controlled floating component, responsive slide transition, Architect and Specs tabs, preview-only AI/spec controls, mobile modal focus management, and build verification.
 - `context/feature-specs/21-canvas-autosave.md` is implemented and verified. Runtime deployment requires `BLOB_READ_WRITE_TOKEN`.
+- `context/feature-specs/22-design-agentapi.md` is implemented, the TaskRun migration is applied, and the production build passes.
+- `context/feature-specs/23-design-agent-logic.md` is implemented: Gemini planning, shape and palette constraints, incremental collaborative canvas actions, AI presence/status, sidebar generation flow, and production build.
+- `context/feature-specs/24-ai-presence-state.md` is implemented: shared Liveblocks status feed, validated latest status display, generation-aware sidebar controls, cursor thinking indicators, and production build.

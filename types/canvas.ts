@@ -118,3 +118,37 @@ export type ShapeDragPayload = {
   shape: CanvasNodeShape;
   size: { width: number; height: number };
 };
+
+export type DesignAction =
+  | {
+      type: "add_node";
+      node: CanvasNode;
+    }
+  | {
+      type: "move_node";
+      nodeId: string;
+      position: { x: number; y: number };
+    }
+  | {
+      type: "resize_node";
+      nodeId: string;
+      width: number;
+      height: number;
+    }
+  | {
+      type: "update_node_data";
+      nodeId: string;
+      data: Partial<CanvasNodeData>;
+    }
+  | {
+      type: "delete_node";
+      nodeId: string;
+    }
+  | {
+      type: "add_edge";
+      edge: CanvasEdge;
+    }
+  | {
+      type: "delete_edge";
+      edgeId: string;
+    };
