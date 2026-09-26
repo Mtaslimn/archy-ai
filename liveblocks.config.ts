@@ -21,7 +21,9 @@ declare global {
       action: import("@liveblocks/client").JsonObject;
     };
 
-    FeedMessageData: import("./types/tasks").AiStatusFeedMessage;
+    FeedMessageData:
+      | import("./types/tasks").AiStatusFeedMessage
+      | import("./types/tasks").AiChatMessage;
 
     ThreadMetadata: Record<string, never>;
 

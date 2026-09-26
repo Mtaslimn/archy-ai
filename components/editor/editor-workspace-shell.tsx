@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LiveblocksProvider, RoomProvider } from "@liveblocks/react/suspense";
 import { useCreateFeed, useFeeds } from "@liveblocks/react";
 import {
@@ -46,28 +46,29 @@ function RoomWorkspaceContent({
 }) {
   const createFeed = useCreateFeed();
   const { feeds, isLoading, error } = useFeeds();
-  const [isStatusFeedReady, setIsStatusFeedReady] = useState(false);
+  const [areFeedsReady, setAreFeedsReady] = useState(false);
+  const missingFeeds = useMemo(() => [
+    { id: "ai-status-feed", name: "AI status" },
+    { id: "ai-chat", name: "AI chat" },
+  ].filter(({ id }) => !feeds?.some((feed) => feed.feedId === id)), [feeds]);
+  const canRenderSidebar = areFeedsReady || (!isLoading && (Boolean(error) || missingFeeds.length === 0));
 
   useEffect(() => {
-    if (isLoading) return;
-    if (error || feeds?.some((feed) => feed.feedId === "ai-status-feed")) {
-      setIsStatusFeedReady(true);
-      return;
-    }
+    if (isLoading || error || missingFeeds.length === 0) return;
 
     let isMounted = true;
-    void createFeed("ai-status-feed", { metadata: { name: "AI status" } })
-      .catch(() => {
-        // The feed may have been created by a concurrent task or room client.
-      })
-      .finally(() => {
-        if (isMounted) setIsStatusFeedReady(true);
-      });
+    void Promise.all(missingFeeds.map(({ id, name }) =>
+      createFeed(id, { metadata: { name } }).catch(() => {
+        // Another room client may have created this feed concurrently.
+      }),
+    )).finally(() => {
+      if (isMounted) setAreFeedsReady(true);
+    });
 
     return () => {
       isMounted = false;
     };
-  }, [createFeed, error, feeds, isLoading]);
+  }, [createFeed, error, feeds, isLoading, missingFeeds]);
 
   return (
     <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-base">
@@ -79,8 +80,8 @@ function RoomWorkspaceContent({
         />
       </section>
 
-      {isStatusFeedReady ? (
-        <AiSidebar roomId={roomId} isOpen={isAiSidebarOpen} onClose={onCloseAiSidebar} />
+      {canRenderSidebar ? (
+        <AiSidebar isOpen={isAiSidebarOpen} onClose={onCloseAiSidebar} roomId={roomId} />
       ) : null}
     </div>
   );
