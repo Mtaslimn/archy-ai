@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useFeedMessages } from "@liveblocks/react";
+import { useCreateFeedMessage, useFeedMessages, useSelf } from "@liveblocks/react";
+import { useRealtimeRun } from "@trigger.dev/react-hooks";
 import {
   ArrowUp,
   Bot,
@@ -15,19 +16,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { isAiStatusFeedMessage } from "@/types/tasks";
+import type { designAgent } from "@/trigger/design-agent";
+import {
+  aiChatMessageSchema,
+  type AiChatMessage,
+  type AiStatusFeedMessage,
+  isAiChatMessage,
+  isAiStatusFeedMessage,
+} from "@/types/tasks";
 
 interface AiSidebarProps {
-  roomId: string;
   isOpen: boolean;
   onClose: () => void;
+  roomId: string;
 }
 
-const starterPrompts = [
-  "Design an e-commerce backend",
-  "Create a chat app architecture",
-  "Build a CI/CD pipeline",
-];
 const STATUS_FRESHNESS_MS = 180_000;
 
 function inertWorkspaceBackground(panel: HTMLElement) {
@@ -62,79 +65,158 @@ function inertWorkspaceBackground(panel: HTMLElement) {
   };
 }
 
-export function AiSidebar({ roomId, isOpen, onClose }: AiSidebarProps) {
+export function AiSidebar({ isOpen, onClose, roomId }: AiSidebarProps) {
   const panelRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [isSendingChat, setIsSendingChat] = useState(false);
+  const [runId, setRunId] = useState<string>();
+  const [publicToken, setPublicToken] = useState<string>();
   const [hasFreshActiveStatus, setHasFreshActiveStatus] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
-  const { messages } = useFeedMessages("ai-status-feed");
-  const latestStatusMessage = [...(messages ?? [])]
+  const [chatError, setChatError] = useState<string | null>(null);
+  const createFeedMessage = useCreateFeedMessage();
+  const { run, error: runError } = useRealtimeRun<typeof designAgent>(runId, {
+    accessToken: publicToken,
+    enabled: Boolean(runId && publicToken),
+  });
+  const self = useSelf();
+  const { messages: statusMessages } = useFeedMessages("ai-status-feed");
+  const { messages: chatMessages } = useFeedMessages("ai-chat");
+  const latestStatusMessage = [...(statusMessages ?? [])]
     .sort((a, b) => a.createdAt - b.createdAt)
     .map((message) => isAiStatusFeedMessage(message.data)
-      ? { ...message.data, createdAt: message.createdAt }
+      ? { ...(message.data as AiStatusFeedMessage), createdAt: message.createdAt }
       : null)
     .filter((message) => message !== null)
     .at(-1);
-  const isGenerating = isSubmitting || hasFreshActiveStatus;
+  const isGenerating = Boolean((runId && publicToken) || hasFreshActiveStatus);
+  const validatedChatMessages = [...(chatMessages ?? [])]
+    .map((message) => {
+      const parsed = isAiChatMessage(message.data) ? message.data as AiChatMessage : null;
+      return parsed ? { ...parsed, id: message.id } : null;
+    })
+    .filter((message) => message !== null)
+    .sort((a, b) => a.timestamp - b.timestamp);
   const latestStatus = latestStatusMessage?.status;
   const latestStatusCreatedAt = latestStatusMessage?.createdAt;
 
   useEffect(() => {
     let expirationTimeoutId: number | undefined;
     const statusCheckTimeoutId = window.setTimeout(() => {
-      if (
-        latestStatusCreatedAt === undefined
-        || (latestStatus !== "start" && latestStatus !== "processing")
-      ) {
+      if (latestStatus !== "start" && latestStatus !== "processing") {
         setHasFreshActiveStatus(false);
         return;
       }
-
-      const remainingFreshness = latestStatusCreatedAt + STATUS_FRESHNESS_MS - Date.now();
+      const remainingFreshness = (latestStatusCreatedAt ?? 0) + STATUS_FRESHNESS_MS - Date.now();
       if (remainingFreshness <= 0) {
         setHasFreshActiveStatus(false);
         return;
       }
-
       setHasFreshActiveStatus(true);
-      expirationTimeoutId = window.setTimeout(
-        () => setHasFreshActiveStatus(false),
-        remainingFreshness,
-      );
+      expirationTimeoutId = window.setTimeout(() => setHasFreshActiveStatus(false), remainingFreshness);
     }, 0);
-
     return () => {
       window.clearTimeout(statusCheckTimeoutId);
       if (expirationTimeoutId !== undefined) window.clearTimeout(expirationTimeoutId);
     };
   }, [latestStatus, latestStatusCreatedAt]);
-
-  const submitPrompt = async () => {
-    const cleanPrompt = prompt.trim();
-    if (!cleanPrompt || isGenerating) return;
-    setRequestError(null);
-    setIsSubmitting(true);
-
+  const sendDesignPrompt = async () => {
+    const prompt = chatInput.trim();
+    if (!prompt || isSendingChat || isGenerating || !self) return;
+    setChatError(null);
+    setIsSendingChat(true);
     try {
+      const userMessage = aiChatMessageSchema.parse({
+        sender: self.info.displayName || "Collaborator",
+        role: "user",
+        content: prompt,
+        timestamp: Date.now(),
+      });
+      await createFeedMessage("ai-chat", userMessage);
+      setChatInput("");
+
       const response = await fetch("/api/ai/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: cleanPrompt, projectId: roomId, roomId }),
+        body: JSON.stringify({ prompt, roomId, projectId: roomId }),
       });
-      if (!response.ok) {
-        const result = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(result?.error ?? "Unable to start AI design generation.");
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok || typeof payload !== "object" || payload === null || !("runId" in payload) || typeof payload.runId !== "string") {
+        throw new Error("Unable to start the design task. Please try again.");
       }
-      setPrompt("");
+
+      setRunId(payload.runId);
+
+      let tokenResponse: Response | null = null;
+      let tokenPayload: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          tokenResponse = await fetch("/api/ai/design/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ runId: payload.runId }),
+          });
+          tokenPayload = await tokenResponse.json().catch(() => null);
+        } catch {
+          tokenResponse = null;
+          tokenPayload = null;
+        }
+        if (tokenResponse?.ok && typeof tokenPayload === "object" && tokenPayload !== null && "token" in tokenPayload && typeof tokenPayload.token === "string") {
+          break;
+        }
+      }
+      if (!tokenResponse?.ok || typeof tokenPayload !== "object" || tokenPayload === null || !("token" in tokenPayload) || typeof tokenPayload.token !== "string") {
+        throw new Error("Unable to connect to the design task. Please try again.");
+      }
+
+      setPublicToken(tokenPayload.token);
     } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "Unable to start AI design generation.");
+      const text = error instanceof Error ? error.message : "Design request failed. Please try again.";
+      setChatError(text);
+      await createFeedMessage("ai-chat", {
+        sender: "Archy AI",
+        role: "assistant",
+        content: text,
+        timestamp: Date.now(),
+      }).catch(() => {});
     } finally {
-      setIsSubmitting(false);
+      setIsSendingChat(false);
     }
   };
+
+  const completedRunId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runId || !publicToken) return;
+    if (runError) {
+      if (completedRunId.current === runId) return;
+      completedRunId.current = runId;
+      const message = { sender: "Archy AI", role: "assistant" as const, content: "Archy AI could not finish this design. Please try again.", timestamp: Date.now() };
+      void createFeedMessage("ai-chat", message).catch(() => {});
+      setRunId(undefined);
+      setPublicToken(undefined);
+      return;
+    }
+    if (!run?.isCompleted && !run?.isFailed && !run?.isCancelled) return;
+    if (completedRunId.current === runId) return;
+    completedRunId.current = runId;
+    const output = run.isCompleted && run.output && typeof run.output === "object"
+      ? (run.output as { applied?: unknown }).applied
+      : undefined;
+    const content = run.isCompleted
+      ? typeof output === "number"
+        ? output > 0 ? `Design update complete. Applied ${output} canvas ${output === 1 ? "change" : "changes"}.` : "Design complete. No canvas changes were needed."
+        : "Design update complete."
+      : "Archy AI could not finish this design. Please try again.";
+    void createFeedMessage("ai-chat", {
+      sender: "Archy AI",
+      role: "assistant",
+      content,
+      timestamp: Date.now(),
+    }).catch(() => {});
+    setRunId(undefined);
+    setPublicToken(undefined);
+  }, [createFeedMessage, publicToken, run, runError, runId]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
@@ -256,7 +338,7 @@ export function AiSidebar({ roomId, isOpen, onClose }: AiSidebarProps) {
                 AI Workspace
               </h2>
               <p className="truncate text-xs text-copy-muted">
-                Collaborate with Ghost AI
+                Collaborative design assistant
               </p>
                 <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-surface-border px-1.5 py-0.5 text-[10px] leading-none text-copy-muted">
                   {isGenerating ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-ai-text" /> : null}
@@ -296,56 +378,52 @@ export function AiSidebar({ roomId, isOpen, onClose }: AiSidebarProps) {
             className="flex min-h-0 flex-1 flex-col pt-3"
           >
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-2">
-              <div className="flex flex-1 flex-col items-center justify-center gap-4 py-6 text-center">
-                <span className="flex size-12 items-center justify-center rounded-2xl border border-surface-border bg-elevated text-ai-text">
-                  <Bot className="h-6 w-6" />
-                </span>
-                <div className="space-y-1">
-                  <h3 className="text-sm font-medium text-copy-primary">
-                    {isGenerating ? "Updating the shared canvas" : "Start with an idea"}
-                  </h3>
-                  <p className="text-xs leading-5 text-copy-muted">
-                    {isGenerating
-                      ? "Archy AI is working. Updates appear live for everyone in this room."
-                      : "Describe the system you want to design or extend the current canvas."}
-                  </p>
-                </div>
-                {latestStatusMessage?.text ? (
-                  <p aria-live="polite" className="w-full rounded-lg border border-surface-border bg-elevated px-3 py-2 text-left text-xs text-copy-muted">
-                    {latestStatusMessage.text}
-                  </p>
-                ) : null}
-                {requestError ? <p role="alert" className="text-xs text-state-error">{requestError}</p> : null}
-                <div className="flex w-full flex-col items-center gap-2">
-                  {starterPrompts.map((starterPrompt) => (
-                    <Button
-                      key={starterPrompt}
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      className="h-auto max-w-full whitespace-normal rounded-full bg-subtle px-3 py-2 text-center text-xs text-ai-text hover:bg-subtle/80"
-                      onClick={() => setPrompt(starterPrompt)}
-                    >
-                      {starterPrompt}
-                    </Button>
-                  ))}
-                </div>
+              <div aria-label="Room chat messages" aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+                {validatedChatMessages.length === 0 ? (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center">
+                    <span className="flex size-12 items-center justify-center rounded-2xl border border-surface-border bg-elevated text-ai-text">
+                      <Bot className="h-6 w-6" />
+                    </span>
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-medium text-copy-primary">What would you like to design?</h3>
+                      <p className="text-xs leading-5 text-copy-muted">Describe a change and Archy AI will update the shared canvas.</p>
+                    </div>
+                  </div>
+                ) : validatedChatMessages.map((message) => (
+                  <article key={message.id} className={`max-w-[90%] rounded-xl border px-3 py-2 ${message.role === "user" ? "ml-auto border-state-success bg-state-success text-copy-primary" : "mr-auto border-surface-border bg-elevated text-copy-primary"}`}>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium text-copy-primary">{message.sender}</span>
+                      <time dateTime={new Date(message.timestamp).toISOString()} className={`shrink-0 text-[10px] ${message.role === "user" ? "text-copy-primary/75" : "text-copy-muted"}`}>
+                        {new Date(message.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      </time>
+                    </div>
+                    <p className={`whitespace-pre-wrap break-words text-sm leading-5 ${message.role === "user" ? "text-copy-primary" : "text-copy-secondary"}`}>{message.content}</p>
+                  </article>
+                ))}
               </div>
+              {chatError ? <p role="alert" className="text-xs text-state-error">{chatError}</p> : null}
             </div>
 
             <div className="mt-3 shrink-0 border-t border-surface-border pt-3">
+              {isGenerating ? (
+                <div aria-live="polite" className="mb-2 flex items-center gap-2 rounded-lg border border-state-success/30 bg-elevated px-3 py-2 text-xs text-copy-secondary">
+                  <span className="size-2 animate-pulse rounded-full bg-state-success" />
+                  <span className="truncate">{latestStatusMessage?.text ?? "Archy AI is working on your design…"}</span>
+                </div>
+              ) : null}
               <div className="relative">
                 <Textarea
-                  aria-label="AI design prompt"
-                  placeholder="Describe a system architecture..."
-                  value={prompt}
-                  disabled={isGenerating}
-                  onChange={(event) => setPrompt(event.target.value)}
+                  aria-label="Design prompt"
+                  placeholder="Describe the design you want..."
+                  value={chatInput}
+                  maxLength={4000}
+                  disabled={!self || isSendingChat || isGenerating}
+                  onChange={(event) => setChatInput(event.target.value)}
                   rows={2}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
-                      void submitPrompt();
+                      void sendDesignPrompt();
                     }
                   }}
                   className="max-h-40 min-h-[72px] resize-none overflow-y-auto field-sizing-content border-surface-border bg-elevated pr-11 text-sm placeholder:text-copy-muted"
@@ -353,13 +431,13 @@ export function AiSidebar({ roomId, isOpen, onClose }: AiSidebarProps) {
                 <Button
                   type="button"
                   size="icon-sm"
-                  aria-label="Generate design"
-                  title="Generate design"
-                  disabled={!prompt.trim() || isGenerating}
-                  onClick={() => void submitPrompt()}
-                  className="absolute right-2 bottom-2 bg-brand text-background hover:bg-brand/90"
+                  aria-label="Send message"
+                  title="Send message"
+                  disabled={!chatInput.trim() || !self || isSendingChat || isGenerating}
+                  onClick={() => void sendDesignPrompt()}
+                  className="absolute right-2 bottom-2 bg-state-success text-base hover:bg-state-success/90 disabled:opacity-50"
                 >
-                  {isGenerating ? (
+                  {isSendingChat ? (
                     <LoaderCircle className="h-4 w-4 animate-spin" />
                   ) : (
                     <ArrowUp className="h-4 w-4" />

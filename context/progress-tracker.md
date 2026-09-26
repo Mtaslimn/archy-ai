@@ -4,11 +4,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- AI presence state
+- Spec generation backend
 
 ## Current Goal
 
-- AI presence state from [24-ai-presence-state.md](feature-specs/24-ai-presence-state.md) is implemented and production-build verified.
+- Spec generation backend from [27-spec-generation-flow.md](feature-specs/27-spec-generation-flow.md) is implemented and production-build verified.
 
 ## Completed
 
@@ -84,13 +84,27 @@ Update this file whenever the current phase, active feature, or implementation s
 - Connected the AI sidebar to the design API, shared room status events, visible activity history, and request error handling; moved the room provider to include both canvas and sidebar.
 - Confirmed `npm run build` passes after implementing the design agent logic.
 - Added the shared `ai-status-feed` room feed with validated generic status messages and latest-message-only rendering in the AI sidebar.
-- Disabled the AI prompt during shared generation and added visible generating indicators to the sidebar status and send button.
+- Added shared generation indicators to the sidebar status while preserving the separate AI status feed.
 - Added a thinking spinner to live cursor name badges when collaborator presence has `thinking: true`.
 - Confirmed `npm run build` passes after implementing AI presence state.
+- Added the room-scoped `ai-chat` Liveblocks feed separately from `ai-status-feed` and ensured both feeds exist before mounting the sidebar.
+- Added a Zod chat-message schema (`sender`, `role`, `content`, and `timestamp`) and validate feed data before rendering.
+- Wired the existing sidebar composer to send room chat messages, clear on success, and show an error on failure; messages render in timestamp order with sender and local time.
+- Kept AI progress display on `ai-status-feed`; chat messages are never written to it and chat sends do not trigger backend AI tasks.
+- Confirmed `npm run build` passes after implementing the sidebar chat feed.
+- Connected the AI sidebar composer to `POST /api/ai/design`, then requested its run-scoped public token and subscribed with `useRealtimeRun`.
+- Added collaborative user prompt, AI completion, and error messages to `ai-chat`; disabled the composer while a run is active and displayed the latest `ai-status-feed` message in a compact active-run strip.
+- Styled user and AI messages with existing theme tokens and retained Liveblocks as the sole canvas synchronization path.
+- Confirmed `npm run build` passes after implementing the design agent frontend.
+- Added `POST /api/ai/spec` with Zod request validation, access resolution from the supplied Liveblocks room ID, Trigger.dev task dispatch, and initiating-user `TaskRun` persistence; client-supplied project IDs are not accepted.
+- Added `POST /api/ai/spec/token` with authenticated run-owner checks and a run-scoped Trigger.dev public token that expires after one hour.
+- Added the Zod-validated `generate-spec` Trigger.dev task. It generates plain Markdown from the canvas and chat context, records processing/completion/error metadata, logs retries and outcomes, and returns the Markdown as task output.
+- Spec generation uses Gemini 3.8 Flash first and falls back to the existing OpenRouter `qwen/qwen3.8-27b:free` model via `OPENROUTER_API_KEY` if Gemini fails.
+- Confirmed `npm run build` passes after implementing spec generation.
 
 ## In Progress
 
-- None.
+- Verify AI design and spec generation in a configured Trigger.dev, Gemini/OpenRouter, and Liveblocks environment.
 
 ## Next Up
 
@@ -108,8 +122,11 @@ Update this file whenever the current phase, active feature, or implementation s
 - Project IDs are generated on create from the slugified project name plus a short unique suffix so the project ID and Liveblocks room ID can match.
 - Workspace access is granted only to project owners or collaborators matching the current user's primary Clerk email.
 - Design task requests require access to the project and require `roomId` to match the project ID. Each Trigger.dev run is recorded against the initiating Clerk user and project; its public token grants read access to that run only.
+- Spec task requests resolve project access exclusively from the authenticated user and `roomId`; each run is recorded against its initiating Clerk user and resolved project. Its public token grants read access to that run only and expires after one hour. Gemini is the primary spec model and the existing OpenRouter Qwen 3.8 27B Free model is the fallback.
 - AI canvas mutations are broadcast as typed Liveblocks room events and applied by connected clients through the existing `useLiveblocksFlow` change handlers. AI presence uses short-lived Liveblocks presence with cursor and thinking fields.
 - AI activity status is written to a room-scoped Liveblocks `ai-status-feed`; sidebar clients validate and display only the latest message.
+- Collaborative sidebar chat messages are written to a separate room-scoped `ai-chat` feed; client rendering validates the message payload with Zod.
+- AI prompts add a shared user message before triggering a run; the initiating client stores the run ID and run-scoped public token, observes completion with Trigger.dev realtime hooks, and posts the final AI message to the shared `ai-chat` feed. UI feedback uses the existing success token for green accents.
 - Liveblocks auth uses room-scoped session tokens after app-level project access checks; rooms are created private with `defaultAccesses: []`.
 - Canvas node IDs are generated from the shape name, timestamp, and incrementing counter, and new nodes use the `canvasNode` custom type.
 - Canvas shapes share one `SHAPE_CONFIG` and `ShapeRenderer` for the panel, ghost preview, and nodes. Fill colors live on `node.data.color` and default per shape from the node color palette.
@@ -132,5 +149,8 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/20-ai-sidebar-shell.md` is implemented: controlled floating component, responsive slide transition, Architect and Specs tabs, preview-only AI/spec controls, mobile modal focus management, and build verification.
 - `context/feature-specs/21-canvas-autosave.md` is implemented and verified. Runtime deployment requires `BLOB_READ_WRITE_TOKEN`.
 - `context/feature-specs/22-design-agentapi.md` is implemented, the TaskRun migration is applied, and the production build passes.
-- `context/feature-specs/23-design-agent-logic.md` is implemented: Gemini planning, shape and palette constraints, incremental collaborative canvas actions, AI presence/status, sidebar generation flow, and production build.
-- `context/feature-specs/24-ai-presence-state.md` is implemented: shared Liveblocks status feed, validated latest status display, generation-aware sidebar controls, cursor thinking indicators, and production build.
+- `context/feature-specs/23-design-agent-logic.md` is implemented: Gemini planning, shape and palette constraints, incremental collaborative canvas actions, AI presence/status, and production build.
+- `context/feature-specs/24-ai-presence-state.md` is implemented: shared Liveblocks status feed, validated latest status display, sidebar generation status, cursor thinking indicators, and production build.
+- `context/feature-specs/25-sidebar-chat-feed.md` is implemented: separate room chat feed, validated and ordered messages, shared composer send/error handling, and production build.
+- `context/feature-specs/26-design-agent-frontend.md` is implemented: AI prompt submission, run-scoped realtime status tracking, active status strip, collaborative chat completion/errors, and production build.
+- `context/feature-specs/27-spec-generation-flow.md` is implemented: authenticated spec task API, owner-scoped one-hour run token, Zod-validated Trigger.dev task, Gemini with OpenRouter Qwen fallback, task metadata status, and production build verification.
