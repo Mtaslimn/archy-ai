@@ -7,6 +7,7 @@ import {
   type PointerEvent,
   type MouseEvent as ReactMouseEvent,
   type TouchEvent,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -18,13 +19,17 @@ import {
   type NodeProps,
   useReactFlow,
 } from "@xyflow/react";
+import { Trash2 } from "lucide-react";
 
 import { ShapeRenderer } from "@/components/editor/shape-renderer";
+import { CanvasNodeDeleteContext } from "@/lib/canvas-node-deletion";
 import {
   MIN_NODE_SIZE,
   NODE_COLORS,
+  NODE_SHAPES,
   SHAPE_CONFIG,
   getNodeTextColor,
+  type CanvasNodeShape,
   type CanvasEdge,
   type CanvasNode,
 } from "@/types/canvas";
@@ -50,21 +55,29 @@ export function CanvasNodeRenderer({
   height,
 }: NodeProps<CanvasNode>) {
   const { setNodes } = useReactFlow<CanvasNode, CanvasEdge>();
+  const deleteSelectedNode = useContext(CanvasNodeDeleteContext);
   const [isEditing, setIsEditing] = useState(false);
-  const [editLabel, setEditLabel] = useState(data.label);
+  const label = typeof data?.label === "string" ? data.label : "";
+  const shape: CanvasNodeShape =
+    data?.shape && NODE_SHAPES.includes(data.shape)
+      ? data.shape
+      : "rectangle";
+  const color =
+    typeof data?.color === "string" ? data.color : NODE_COLORS.neutral.fill;
+  const [editLabel, setEditLabel] = useState(label);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const shapeConfig = SHAPE_CONFIG[data.shape] ?? SHAPE_CONFIG.rectangle;
+  const shapeConfig = SHAPE_CONFIG[shape];
   const nodeWidth = width ?? shapeConfig.width;
   const nodeHeight = height ?? shapeConfig.height;
-  const textColor = getNodeTextColor(data.color);
+  const textColor = getNodeTextColor(color);
   const borderColor = textColor;
   const colorSwatches = Object.entries(NODE_COLORS);
 
   useEffect(() => {
     if (!isEditing) {
-      setEditLabel(data.label);
+      setEditLabel(label);
     }
-  }, [data.label, isEditing]);
+  }, [isEditing, label]);
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -119,7 +132,7 @@ export function CanvasNodeRenderer({
   const handleDoubleClick = (event: ReactMouseEvent) => {
     event.stopPropagation();
     setIsEditing(true);
-    setEditLabel(data.label);
+    setEditLabel(label);
   };
 
   const handleTextareaChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -150,6 +163,7 @@ export function CanvasNodeRenderer({
   return (
     <div
       className="group/canvas-node relative h-full w-full"
+      data-node-label-editing={isEditing}
       onDoubleClick={handleDoubleClick}
     >
       {selected && !isEditing ? (
@@ -169,7 +183,7 @@ export function CanvasNodeRenderer({
         >
           <div className="flex items-center gap-1.5 rounded-full border border-border bg-surface/90 px-1.5 py-1.5 shadow-lg shadow-black/30 backdrop-blur-sm">
             {colorSwatches.map(([name, pair]) => {
-              const isActive = data.color === pair.fill;
+              const isActive = color === pair.fill;
               const glowColor = pair.text;
 
               return (
@@ -186,8 +200,7 @@ export function CanvasNodeRenderer({
                     event.preventDefault();
                     event.stopPropagation();
                   }}
-                  onClick={(event) => {
-                    event.stopPropagation();
+                  onClick={() => {
                     updateNodeColor(pair.fill);
                   }}
                   className="relative flex h-5 w-5 items-center justify-center rounded-full border border-white/10 transition-transform duration-150 hover:scale-105"
@@ -206,6 +219,26 @@ export function CanvasNodeRenderer({
                 </button>
               );
             })}
+            <div className="mx-0.5 h-5 w-px bg-border" />
+            <button
+              type="button"
+              aria-label="Delete node"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={() => {
+                deleteSelectedNode?.(id);
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-state-error/80 transition-colors hover:bg-state-error/10 hover:text-state-error"
+              title="Delete node"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       ) : null}
@@ -214,7 +247,7 @@ export function CanvasNodeRenderer({
         isVisible={Boolean(selected) && !isEditing}
         minWidth={MIN_NODE_SIZE}
         minHeight={MIN_NODE_SIZE}
-        keepAspectRatio={data.shape === "circle"}
+        keepAspectRatio={shape === "circle"}
         color="var(--accent-primary)"
         handleClassName="!h-2.5 !w-2.5 !rounded-sm !border-accent-primary !bg-accent-primary"
         lineClassName="!border-accent-primary/50"
@@ -246,10 +279,10 @@ export function CanvasNodeRenderer({
       ))}
 
       <ShapeRenderer
-        shape={data.shape}
+        shape={shape}
         width={nodeWidth}
         height={nodeHeight}
-        fillColor={data.color}
+        fillColor={color}
         borderColor={borderColor}
         textColor={textColor}
         selected={selected}
@@ -272,9 +305,9 @@ export function CanvasNodeRenderer({
         ) : (
           <span
             className="line-clamp-3 text-[11px] font-medium leading-tight"
-            style={{ color: data.label ? textColor : "var(--text-muted)" }}
+            style={{ color: label ? textColor : "var(--text-muted)" }}
           >
-            {data.label || "Untitled"}
+            {label || "Untitled"}
           </span>
         )}
       </ShapeRenderer>

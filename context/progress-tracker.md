@@ -4,11 +4,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Canvas ergonomics implementation complete and in build verification
+- Canvas autosave and loading complete and verified
 
 ## Current Goal
 
-- Confirm the floating zoom/history control bar, Liveblocks undo/redo wiring, keyboard shortcuts, and overall React Flow canvas build cleanly.
+- Canvas autosave and loading from [21-canvas-autosave.md](feature-specs/21-canvas-autosave.md) are implemented, production-build clean, and scoped to empty Liveblocks rooms for restore.
 
 ## Completed
 
@@ -59,6 +59,20 @@ Update this file whenever the current phase, active feature, or implementation s
 - Implemented a floating selected-node color toolbar that uses the existing predefined background/text palette, updates the node color immediately, and preserves collaborative canvas state without server calls.
 - Implemented custom canvas edges with arrowheads, hover/selection styling, right-angle routing, and inline label editing through the existing collaborative edge data flow.
 - Added the floating bottom-left canvas control bar with zoom controls and Liveblocks undo/redo actions, removed the minimap, and wired the same actions to keyboard shortcuts while ignoring editable fields.
+- Implemented the canvas-only collaborator presence stack in the workspace editor view, including filtered Liveblocks avatars, current-user Clerk `UserButton`, overflow chip, and dark-canvas ring styling.
+- Wired live cursor presence updates to React Flow mouse movement and cleared cursor state on leave using cursor-only presence patches; collaborator identities remain visible until the current user ID is known.
+- Updated the Liveblocks presence contract to use `cursor` and `thinking` to match the required room state shape.
+- Extracted the floating AI sidebar into a parent-controlled component with the existing placement, backdrop, surface, border, and shadow styling plus a smooth slide transition.
+- Added the AI Architect and Specs tabs, starter prompts, explicit preview-only chat controls, and a static demo spec card with disabled generation and download actions.
+- Added mobile modal focus trapping, background inerting, Escape-to-close, and focus restoration for the AI sidebar.
+- Confirmed `npm run build` passes after implementing the AI sidebar shell.
+- Installed `@vercel/blob` and reused the existing `Project.canvasJsonPath` field to store the canvas snapshot URL.
+- Added authenticated `GET` and `PUT /api/projects/[projectId]/canvas` handlers; both require project membership, and snapshots are uploaded to Vercel Blob while Prisma stores only the URL.
+- Added `hooks/use-canvas-autosave.ts` with an 800 ms debounce, queued saves, immediate-save support, and saving/saved/error status.
+- Restored saved snapshots only when the Liveblocks room has no nodes or edges, with a second emptiness check after the fetch to protect active collaboration.
+- Added the editor Save button with immediate save action and visible saving, saved, and error states.
+- Updated project storage context to document Vercel Blob snapshots and the Prisma URL reference.
+- Confirmed `npm run build` and ESLint on all changed source files pass. Full `npm run lint` still reports the existing `canvas-node.tsx` set-state-in-effect error.
 
 ## In Progress
 
@@ -98,3 +112,5 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/11-base-canvas.md` is implemented: server workspace page preserved, client Liveblocks room wrapper added, and React Flow now uses Liveblocks-synced nodes and edges.
 - `context/feature-specs/12-shape-panel.md` is implemented: drag-and-drop shape panel, canvas coordinate conversion, node creation, default node styling, and build verification.
 - Canvas shape-system fixes: shared renderer, React Flow handles and edges, per-shape colors, `@xyflow/react` NodeResizer, and isolated label editing.
+- `context/feature-specs/20-ai-sidebar-shell.md` is implemented: controlled floating component, responsive slide transition, Architect and Specs tabs, preview-only AI/spec controls, mobile modal focus management, and build verification.
+- `context/feature-specs/21-canvas-autosave.md` is implemented and verified. Runtime deployment requires `BLOB_READ_WRITE_TOKEN`.

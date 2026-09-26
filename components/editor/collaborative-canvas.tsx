@@ -1,17 +1,11 @@
 "use client";
 
-import {
-  Component,
-  type ComponentProps,
-  type DragEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { UserButton, useUser } from "@clerk/nextjs";
 import {
   useCanRedo,
   useCanUndo,
+  useMyPresence,
+  useOthers,
   useRedo,
   useUndo,
 } from "@liveblocks/react";
@@ -20,6 +14,16 @@ import {
   LiveblocksProvider,
   RoomProvider,
 } from "@liveblocks/react/suspense";
+import {
+  Component,
+  type ComponentProps,
+  type DragEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Cursors, useLiveblocksFlow } from "@liveblocks/react-flow";
 import {
   Background,
@@ -37,6 +41,14 @@ import {
 } from "@xyflow/react";
 
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import {
+  CanvasNodeDeleteContext,
+  deleteCanvasNode,
+} from "@/lib/canvas-node-deletion";
+import {
+  useCanvasAutosave,
+  type CanvasSaveStatus,
+} from "@/hooks/use-canvas-autosave";
 
 import { CanvasNodeRenderer } from "@/components/editor/canvas-node";
 import {
@@ -55,6 +67,8 @@ import {
 
 interface CollaborativeCanvasProps {
   roomId: string;
+  onSaveStatusChange: (status: CanvasSaveStatus) => void;
+  onRegisterSaveAction: (saveAction: () => void) => void;
 }
 
 const nodeTypes = {
@@ -93,10 +107,11 @@ function CanvasEdgeRenderer({
 }: EdgeProps<CanvasEdge>) {
   const { setEdges } = useReactFlow<CanvasNode, CanvasEdge>();
   const [isEditing, setIsEditing] = useState(false);
-  const [labelValue, setLabelValue] = useState(data?.label ?? "");
+  const edgeLabel = typeof data?.label === "string" ? data.label : "";
+  const [labelValue, setLabelValue] = useState(edgeLabel);
   const inputRef = useRef<HTMLInputElement>(null);
   const wasEditingRef = useRef(false);
-  const lastCommittedLabelRef = useRef(data?.label ?? "");
+  const lastCommittedLabelRef = useRef(edgeLabel);
 
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -117,21 +132,21 @@ function CanvasEdgeRenderer({
 
   useEffect(() => {
     if (!isEditing || !wasEditingRef.current) {
-      setLabelValue(data?.label ?? "");
+      setLabelValue(edgeLabel);
     }
 
     wasEditingRef.current = isEditing;
-  }, [data?.label, isEditing]);
+  }, [edgeLabel, isEditing]);
 
   useEffect(() => {
     if (!isEditing) {
-      lastCommittedLabelRef.current = data?.label ?? "";
+      lastCommittedLabelRef.current = edgeLabel;
     }
-  }, [data?.label, isEditing]);
+  }, [edgeLabel, isEditing]);
 
   const persistLabel = (nextLabel: string) => {
     const normalized = nextLabel.trim();
-    const remoteLabelChanged = (data?.label ?? "") !== lastCommittedLabelRef.current;
+    const remoteLabelChanged = edgeLabel !== lastCommittedLabelRef.current;
 
     setEdges((edges) =>
       edges.map((edge) =>
@@ -140,7 +155,7 @@ function CanvasEdgeRenderer({
               ...edge,
               data: {
                 ...edge.data,
-                label: remoteLabelChanged ? data?.label ?? "" : normalized,
+                label: remoteLabelChanged ? edgeLabel : normalized,
               },
             }
           : edge,
@@ -148,7 +163,7 @@ function CanvasEdgeRenderer({
     );
 
     lastCommittedLabelRef.current = remoteLabelChanged
-      ? data?.label ?? ""
+      ? edgeLabel
       : normalized;
   };
 
@@ -171,7 +186,7 @@ function CanvasEdgeRenderer({
     }
   };
 
-  const hasLabel = Boolean(data?.label?.trim());
+  const hasLabel = Boolean(edgeLabel.trim());
 
   return (
     <>
@@ -238,7 +253,7 @@ function CanvasEdgeRenderer({
             />
           ) : hasLabel ? (
             <span className="rounded-full border border-surface-border bg-surface/90 px-2 py-0.5 text-[10px] font-medium text-copy-secondary shadow-sm">
-              {data?.label}
+              {edgeLabel}
             </span>
           ) : (
             <span className="rounded-full border border-dashed border-surface-border/80 bg-surface/70 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] text-copy-faint">
@@ -506,6 +521,7 @@ function FlowCanvas({
   onEdgesChange,
   onConnect,
   onDelete,
+  onDeleteNode,
   selectedShape,
   setSelectedShape,
 }: {
@@ -521,6 +537,7 @@ function FlowCanvas({
     typeof ReactFlow<CanvasNode, CanvasEdge>
   >[0]["onConnect"];
   onDelete: Parameters<typeof ReactFlow<CanvasNode, CanvasEdge>>[0]["onDelete"];
+  onDeleteNode: (nodeId: string) => void;
   selectedShape: CanvasNodeShape | null;
   setSelectedShape: (shape: CanvasNodeShape | null) => void;
 }) {
@@ -528,7 +545,26 @@ function FlowCanvas({
     CanvasNode,
     CanvasEdge
   >();
+  const [, updateMyPresence] = useMyPresence();
   const dropCounter = useRef(0);
+
+  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const nextPosition = screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    updateMyPresence({
+      cursor: {
+        x: nextPosition.x,
+        y: nextPosition.y,
+      },
+    });
+  };
+
+  const handleMouseLeave = () => {
+    updateMyPresence({ cursor: null });
+  };
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -602,6 +638,7 @@ function FlowCanvas({
   };
 
   return (
+    <CanvasNodeDeleteContext.Provider value={onDeleteNode}>
     <ReactFlow<CanvasNode, CanvasEdge>
       nodes={nodes}
       edges={edges}
@@ -615,6 +652,9 @@ function FlowCanvas({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onPaneClick={handlePaneClick}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      deleteKeyCode={null}
       connectionMode={ConnectionMode.Loose}
       fitView
       className="h-full w-full"
@@ -628,22 +668,116 @@ function FlowCanvas({
       />
       <Cursors />
     </ReactFlow>
+    </CanvasNodeDeleteContext.Provider>
   );
 }
 
-function SyncedReactFlowCanvas() {
+function SyncedReactFlowCanvas({
+  roomId,
+  onSaveStatusChange,
+  onRegisterSaveAction,
+}: CollaborativeCanvasProps) {
   const { zoom } = useViewport();
   const reactFlow = useReactFlow<CanvasNode, CanvasEdge>();
   const undo = useUndo();
   const redo = useRedo();
   const canUndo = useCanUndo();
   const canRedo = useCanRedo();
+  const { user } = useUser();
+  const others = useOthers();
+  const currentUserId = user?.id ?? null;
+  const collaboratorUsers = others.filter((other) => {
+    const typedOther = other as { id?: string; info?: { id?: string } };
+    const otherId = typedOther.id ?? typedOther.info?.id ?? null;
+
+    return Boolean(otherId) && (!currentUserId || otherId !== currentUserId);
+  });
+  const visibleCollaborators = collaboratorUsers.slice(0, 5);
+  const overflowCount = collaboratorUsers.length - visibleCollaborators.length;
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, onDelete } =
     useLiveblocksFlow<CanvasNode, CanvasEdge>({
       suspense: true,
       nodes: { initial: [] },
       edges: { initial: [] },
     });
+  const [isCanvasReady, setIsCanvasReady] = useState(false);
+  const canvasRootRef = useRef<HTMLDivElement>(null);
+  const hasCheckedSavedCanvasRef = useRef(false);
+  const isLoadingSavedCanvasRef = useRef(false);
+  const loadSavedCanvasRef = useRef<() => Promise<void>>(async () => {});
+  const { saveNow } = useCanvasAutosave({
+    projectId: roomId,
+    nodes,
+    edges,
+    enabled: isCanvasReady,
+    onStatusChange: onSaveStatusChange,
+  });
+
+  useEffect(() => {
+    onRegisterSaveAction(saveNow);
+  }, [onRegisterSaveAction, saveNow]);
+
+  const loadSavedCanvas = useCallback(async () => {
+    if (isLoadingSavedCanvasRef.current) {
+      return;
+    }
+
+    isLoadingSavedCanvasRef.current = true;
+    try {
+      const roomNodes = reactFlow.getNodes();
+      const roomEdges = reactFlow.getEdges();
+      if (roomNodes.length > 0 || roomEdges.length > 0) {
+        setIsCanvasReady(true);
+        onRegisterSaveAction(saveNow);
+        return;
+      }
+
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(roomId)}/canvas`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error("Canvas load failed");
+      }
+
+      const result = (await response.json()) as {
+        canvas: { nodes: CanvasNode[]; edges: CanvasEdge[] } | null;
+      };
+      const latestNodes = reactFlow.getNodes();
+      const latestEdges = reactFlow.getEdges();
+      if (
+        result.canvas &&
+        latestNodes.length === 0 &&
+        latestEdges.length === 0
+      ) {
+        reactFlow.setNodes(result.canvas.nodes);
+        reactFlow.setEdges(result.canvas.edges);
+      }
+
+      setIsCanvasReady(true);
+      onRegisterSaveAction(saveNow);
+    } catch {
+      onSaveStatusChange("error");
+      onRegisterSaveAction(() => {
+        void loadSavedCanvasRef.current();
+      });
+    } finally {
+      isLoadingSavedCanvasRef.current = false;
+    }
+  }, [onRegisterSaveAction, onSaveStatusChange, reactFlow, roomId, saveNow]);
+
+  useEffect(() => {
+    loadSavedCanvasRef.current = loadSavedCanvas;
+  }, [loadSavedCanvas]);
+
+  useEffect(() => {
+    if (hasCheckedSavedCanvasRef.current) {
+      return;
+    }
+
+    hasCheckedSavedCanvasRef.current = true;
+    void loadSavedCanvas();
+  }, [loadSavedCanvas]);
 
   const normalizedEdges = edges.map((edge) =>
     edge.type === "smoothstep"
@@ -652,6 +786,11 @@ function SyncedReactFlowCanvas() {
   );
 
   useKeyboardShortcuts(reactFlow, { undo, redo });
+
+  const deleteNode = useCallback(
+    (nodeId: string) => deleteCanvasNode(nodeId, nodes, edges, onDelete),
+    [edges, nodes, onDelete],
+  );
 
   const handleZoomIn = () => {
     reactFlow.zoomIn({ duration: 180 });
@@ -664,6 +803,48 @@ function SyncedReactFlowCanvas() {
   const handleFitView = () => {
     reactFlow.fitView({ duration: 180, padding: 0.2 });
   };
+
+  useEffect(() => {
+    const handleCanvasKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") {
+        return;
+      }
+
+      const activeElement = document.activeElement;
+      if (
+        activeElement instanceof HTMLElement &&
+        ["INPUT", "TEXTAREA"].includes(activeElement.tagName)
+      ) {
+        return;
+      }
+
+      const isLabelEditing = Boolean(
+        canvasRootRef.current?.querySelector('[data-node-label-editing="true"]'),
+      );
+      console.debug("Canvas label editing during delete shortcut:", isLabelEditing);
+      if (isLabelEditing) {
+        return;
+      }
+
+      const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
+      const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
+      const selectedEdges = reactFlow.getEdges().filter(
+        (edge) =>
+          edge.selected ||
+          selectedNodeIds.has(edge.source) ||
+          selectedNodeIds.has(edge.target),
+      );
+      if (selectedNodes.length === 0 && selectedEdges.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      onDelete({ nodes: selectedNodes, edges: selectedEdges });
+    };
+
+    window.addEventListener("keydown", handleCanvasKeyDown);
+    return () => window.removeEventListener("keydown", handleCanvasKeyDown);
+  }, [onDelete, reactFlow]);
 
   const [selectedShape, setSelectedShape] = useState<CanvasNodeShape | null>(
     null,
@@ -704,7 +885,7 @@ function SyncedReactFlowCanvas() {
   }, [isDraggingShape]);
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={canvasRootRef} className="relative h-full w-full">
       <FlowCanvas
         nodes={nodes}
         edges={normalizedEdges}
@@ -712,9 +893,81 @@ function SyncedReactFlowCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onDelete={onDelete}
+        onDeleteNode={deleteNode}
         selectedShape={selectedShape}
         setSelectedShape={setSelectedShape}
       />
+      <div className="pointer-events-none absolute right-4 top-4 z-20 flex items-center gap-2">
+        {collaboratorUsers.length > 0 ? (
+          <>
+            <div className="flex -space-x-2">
+              {visibleCollaborators.map((other) => {
+                const typedOther = other as {
+                  connectionId: number;
+                  info?: {
+                    displayName?: string;
+                    avatarUrl?: string;
+                    cursorColor?: string;
+                  };
+                };
+                const collaboratorInfo = typedOther.info ?? {};
+                const initials = (collaboratorInfo.displayName ?? "A")
+                  .trim()
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase() ?? "")
+                  .join("") || "A";
+
+                return (
+                  <div
+                    key={typedOther.connectionId}
+                    className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-surface-border bg-subtle text-[11px] font-semibold text-copy-primary ring-2 ring-[#0d0d0f]"
+                    style={{
+                      boxShadow: `0 0 0 1px ${collaboratorInfo.cursorColor ?? "rgba(248,250,252,0.3)"}`,
+                    }}
+                    aria-label={collaboratorInfo.displayName ?? "Collaborator"}
+                    title={collaboratorInfo.displayName ?? "Collaborator"}
+                  >
+                    {collaboratorInfo.avatarUrl ? (
+                      <img
+                        src={collaboratorInfo.avatarUrl}
+                        alt={collaboratorInfo.displayName ?? "Collaborator avatar"}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span>{initials}</span>
+                    )}
+                  </div>
+                );
+              })}
+              {overflowCount > 0 ? (
+                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-surface-border bg-surface/90 text-[10px] font-semibold text-copy-primary ring-2 ring-[#0d0d0f]">
+                  +{overflowCount}
+                </div>
+              ) : null}
+            </div>
+            <div className="h-8 w-px bg-surface-border/80" />
+          </>
+        ) : null}
+        <div className="pointer-events-auto flex h-9 w-9 items-center justify-center overflow-hidden rounded-full ring-2 ring-[#0d0d0f] ring-offset-0">
+          <UserButton
+            appearance={{
+              elements: {
+                avatarBox: {
+                  width: "2.25rem",
+                  height: "2.25rem",
+                  borderRadius: "9999px",
+                },
+                userButtonTrigger: {
+                  width: "2.25rem",
+                  height: "2.25rem",
+                  borderRadius: "9999px",
+                },
+              },
+            }}
+          />
+        </div>
+      </div>
       <CanvasControlBar
         canUndo={canUndo}
         canRedo={canRedo}
@@ -742,17 +995,25 @@ function SyncedReactFlowCanvas() {
   );
 }
 
-export function CollaborativeCanvas({ roomId }: CollaborativeCanvasProps) {
+export function CollaborativeCanvas({
+  roomId,
+  onSaveStatusChange,
+  onRegisterSaveAction,
+}: CollaborativeCanvasProps) {
   return (
     <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
       <RoomProvider
         id={roomId}
-        initialPresence={{ cursor: null, isThinking: false }}
+        initialPresence={{ cursor: null, thinking: false }}
       >
         <ReactFlowProvider>
           <LiveblocksErrorBoundary>
             <ClientSideSuspense fallback={<CanvasLoading />}>
-              <SyncedReactFlowCanvas />
+              <SyncedReactFlowCanvas
+                roomId={roomId}
+                onSaveStatusChange={onSaveStatusChange}
+                onRegisterSaveAction={onRegisterSaveAction}
+              />
             </ClientSideSuspense>
           </LiveblocksErrorBoundary>
         </ReactFlowProvider>
