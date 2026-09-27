@@ -233,6 +233,31 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
   }, [createFeedMessage, onApplyDesignActions, publicToken, run, runError, runId]);
 
   useEffect(() => {
+    if (!runId || !publicToken) return;
+    if (run && run.id !== runId) return;
+    const status = typeof run?.status === "string" ? run.status : "";
+    const workerNotReady = !run || status === "WAITING_FOR_DEPLOY" || status === "DELAYED" || status === "QUEUED";
+    const timeoutMs = workerNotReady ? 45_000 : 150_000;
+    const timeoutId = window.setTimeout(() => {
+      if (completedRunId.current === runId) return;
+      completedRunId.current = runId;
+      const content = workerNotReady
+        ? "The design worker did not start. Make sure Trigger.dev is running (`npx trigger.dev@latest dev`) and try again."
+        : "I couldn't produce a usable architecture plan. Gemini may be out of quota or the backup model may be unavailable. Check provider limits and try again.";
+      void createFeedMessage("ai-chat", {
+        sender: "Archy AI",
+        role: "assistant",
+        content,
+        timestamp: Date.now(),
+      }).catch(() => {});
+      setChatError(content);
+      setRunId(undefined);
+      setPublicToken(undefined);
+    }, timeoutMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [createFeedMessage, publicToken, run, runId]);
+
+  useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
     const updateViewport = () => setIsMobileViewport(mediaQuery.matches);
 

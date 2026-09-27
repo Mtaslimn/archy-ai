@@ -1,7 +1,7 @@
 import { google } from "@ai-sdk/google";
-import { generateObject, jsonSchema } from "ai";
+import { generateObject, jsonSchema, NoObjectGeneratedError } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { task } from "@trigger.dev/sdk";
+import { metadata, task } from "@trigger.dev/sdk";
 import type { JsonObject } from "@liveblocks/node";
 
 import { getLiveblocksClient } from "@/lib/liveblocks";
@@ -203,6 +203,53 @@ function normalizeAction(
   return null;
 }
 
+function summarizeGenerationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (NoObjectGeneratedError.isInstance(error)) {
+    return {
+      name: error.name,
+      message,
+      finishReason: error.finishReason,
+      cause: error.cause instanceof Error ? error.cause.message : error.cause ? String(error.cause) : undefined,
+      text: typeof error.text === "string" ? error.text.slice(0, 2000) : undefined,
+    };
+  }
+  return { name: error instanceof Error ? error.name : "Error", message };
+}
+
+function extractExplicitExclusions(prompt: string) {
+  const terms = new Set<string>();
+  for (const match of prompt.matchAll(/\b(?:do not|don't|never)\s+(?:use|include|add|create)\s+([^.;\n]+)/gi)) {
+    for (const part of match[1].split(/,| and | or /i)) {
+      const term = part.replace(/^(?:any\s+)?(?:a |an |the )/i, "").trim().toLowerCase();
+      if (term.length >= 3) terms.add(term);
+    }
+  }
+  return [...terms];
+}
+
+function labelsFromActions(actions: DesignAction[]) {
+  return actions.flatMap((action) => {
+    if (action.type === "add_node") return [action.node.data.label];
+    if (action.type === "update_node_data" && action.data.label) return [action.data.label];
+    return [];
+  });
+}
+
+async function withDeadline<T>(work: Promise<T>, timeoutMs: number, label: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export { type DesignAction };
 
 export const designAgent = task({
@@ -210,6 +257,7 @@ export const designAgent = task({
   // Provider failures are handled by the explicit fallback below. Re-running
   // the whole task would repeat quota-limited calls and duplicate canvas work.
   retry: { maxAttempts: 1 },
+  maxDuration: 180,
   run: async (payload: { prompt: string; roomId: string }) => {
     const liveblocks = getLiveblocksClient();
     const userId = "archy-ai-agent";
@@ -268,9 +316,35 @@ export const designAgent = task({
       await publishStatus("processing", "Analyzing the existing canvas and planning updates.");
 
       const hasCanvas = graph.nodes.length > 0;
+      const exclusions = extractExplicitExclusions(payload.prompt);
+      metadata.set("status", "processing")
+        .set("providerAttempt", "gemini")
+        .set("hasCanvas", hasCanvas)
+        .set("existingNodes", graph.nodes.length)
+        .set("existingEdges", graph.edges.length);
       const generationOptions = {
         schema: designPlanSchema,
-        system: `You are Archy AI, designing the system described by the user's request, not this canvas application. Identify the domain, requirements, actors, and explicit constraints; then choose only components needed to satisfy them. Every component needs a requirement-based purpose, and every edge must represent a real interaction or data flow. Do not assume realtime behavior, chat, presence, caching, queues, microservices, cloud providers, or scalability. Mentions in examples or negative statements are not requirements; respect explicit exclusions. Avoid generic templates and prefer domain-specific labels when justified. Correctness matters more than sophistication or node count. ${hasCanvas ? "Treat existing canvas content as context, not as correct by default. Add, edit, move, or delete components and edges as needed for the latest request." : "Create only the architecture justified by the request; do not require a fixed node count or force isolated components into a connected graph."} Return ordered actions using only the allowed action types. Every action must include ref, label, shape, x, y, source, and target because the output format requires them. For add_node, provide a unique ref, concise label, valid shape and numeric x/y; set source and target to empty strings. For add_edge, set source and target to existing node IDs or refs created earlier; set ref and label to empty strings, shape to rectangle, and x/y to 0. For move_node include its existing nodeId and destination x/y. For resize_node include nodeId, width, and height. For update_node_data include nodeId and a non-empty label; shape and color are optional. For delete_node include its existing nodeId; for delete_edge include its existing edgeId. For non-add actions, set ref and source/target to empty strings and set unused label/shape/x/y values to empty label, rectangle, and 0. Allowed shapes: ${NODE_SHAPES.join(", ")}. Allowed fill colors: ${Object.entries(NODE_COLORS).map(([name, pair]) => `${name}=${pair.fill}`).join(", ")}. Place nodes with readable spacing and avoid overlap.`,
+        system: `You are Archy AI, designing the system described by the user's request — not this canvas application. This product uses Liveblocks and Trigger.dev internally; never put those, or unrequested chat/presence/WebSocket/Redis/message-queue infrastructure, on the canvas unless the user's requirements call for that behavior.
+
+Before emitting actions: understand the request; extract functional requirements; extract explicit constraints and exclusions; identify external actors and required capabilities; choose the minimum components those capabilities need; add optional components only if justified; drop anything unnecessary; keep only legitimate data or control flows; then emit canvas actions.
+
+Rules:
+- Derive the architecture only from the user's stated requirements. Do not use generic distributed-system templates.
+- Create exactly as many components as the requirements justify — no more, no less. Do not pad the architecture to reach a target count.
+- Only connect two components with an edge if there is a genuine data or control flow; do not force every node into one connected graph.
+- Every component needs a requirement-based justification; every edge needs a real-interaction justification.
+- Do not assume scalability, realtime behavior, async processing, microservices, caches, queues, or a cloud provider unless the requirements imply them.
+- If the user explicitly says not to use a technology, never include it unless the requirements create an unavoidable contradiction — and if they do, omit it rather than silently including it.
+- Prefer meaningful, domain-specific labels (e.g. Product Catalog, Order Management, Payment Processing for e-commerce) over generic ones (Application Service, Core Service) when the requirements support a more specific name.
+- Mentions in examples or negative statements are not requirements.
+- Correctness matters more than sophistication.
+- Never return an empty actions array.
+
+${hasCanvas
+  ? "The user's latest request determines the target architecture. Existing canvas content is context, not authority: add, rename, move, rewire, or delete nodes and edges that are inconsistent with the new request."
+  : "The canvas is empty. Create only the architecture justified by the request."}
+
+Return ordered actions using only the allowed action types. Every action must include ref, label, shape, x, y, source, and target because the output format requires them. For add_node, provide a unique ref, concise label, valid shape and numeric x/y; set source and target to empty strings. For add_edge, set source and target to existing node IDs or refs created earlier; set ref and label to empty strings, shape to rectangle, and x/y to 0. For move_node include its existing nodeId and destination x/y. For resize_node include nodeId, width, and height. For update_node_data include nodeId and a non-empty label; shape and color are optional. For delete_node include its existing nodeId; for delete_edge include its existing edgeId. For non-add actions, set ref and source/target to empty strings and set unused label/shape/x/y values to empty label, rectangle, and 0. Allowed shapes: ${NODE_SHAPES.join(", ")}. Allowed fill colors: ${Object.entries(NODE_COLORS).map(([name, pair]) => `${name}=${pair.fill}`).join(", ")}. Place nodes with readable spacing and avoid overlap.`,
         prompt: `User request:\n${payload.prompt}\n\nCurrent canvas graph:\n${JSON.stringify(graph)}`,
       };
       const normalizePlan = (plan: DesignPlan) => {
@@ -285,35 +359,57 @@ export const designAgent = task({
         });
         const nodesAdded = actions.filter((action) => action.type === "add_node").length;
         const edgesAdded = actions.filter((action) => action.type === "add_edge").length;
+        const labels = labelsFromActions(actions);
+        const duplicateLabels = [...new Set(labels.filter((label, index) => labels.indexOf(label) !== index))];
+        const excludedMatches = labels.filter((label) => {
+          const normalized = label.toLowerCase();
+          return exclusions.some((term) => {
+            const needle = term.replace(/s\b/g, "").trim();
+            return needle.length >= 3 && (normalized.includes(term) || normalized.includes(needle) || term.includes(normalized));
+          });
+        });
         if (actions.length === 0 || (!hasCanvas && nodesAdded === 0)) {
-          throw new Error(`Model returned no usable architecture actions (nodes=${nodesAdded}, edges=${edgesAdded}).`);
+          throw new Error(`Model returned no usable architecture actions (nodes=${nodesAdded}, edges=${edgesAdded}, rejected=${plan.actions.length}).`);
         }
-        return { actions, nodesAdded, edgesAdded, actionsRejected: plan.actions.length - actions.length };
+        return {
+          actions,
+          nodesAdded,
+          edgesAdded,
+          actionsRejected: plan.actions.length - actions.length,
+          duplicateLabels,
+          excludedMatches,
+        };
       };
       let object: DesignPlan;
       let prepared: ReturnType<typeof normalizePlan>;
       let provider = "gemini";
+      let finishReason: string | undefined;
       try {
-        const result = await generateObject({
+        const result = await withDeadline(generateObject({
           ...generationOptions,
           model: google("gemini-3.8-flash"),
           maxRetries: 0,
           abortSignal: AbortSignal.timeout(25_000),
-        });
+          providerOptions: { google: { structuredOutputs: true } },
+        }), 28_000, "Gemini design generation");
         object = result.object;
         prepared = normalizePlan(object);
-        console.info("Design generation succeeded", { provider, finishReason: result.finishReason, nodesAdded: prepared.nodesAdded, edgesAdded: prepared.edgesAdded, actionsRejected: prepared.actionsRejected });
+        finishReason = result.finishReason;
+        console.info("Design generation succeeded", { provider, finishReason, nodesAdded: prepared.nodesAdded, edgesAdded: prepared.edgesAdded, actionsRejected: prepared.actionsRejected });
       } catch (primaryError) {
-        console.warn("Design provider failed", { provider, error: primaryError instanceof Error ? primaryError.message : String(primaryError) });
+        const primarySummary = summarizeGenerationError(primaryError);
+        console.warn("Design provider failed", { provider, ...primarySummary });
+        metadata.set("geminiFailure", primarySummary);
         const apiKey = process.env.OPENROUTER_API_KEY;
         if (!apiKey) {
           throw new Error("Gemini failed and OPENROUTER_API_KEY is not configured for fallback.", { cause: primaryError });
         } else {
           try {
             console.info("Trying OpenRouter after Gemini failure");
+            metadata.set("providerAttempt", "openrouter");
             const openrouter = createOpenRouter({ apiKey });
             provider = "openrouter";
-            const result = await generateObject({
+            const result = await withDeadline(generateObject({
               ...generationOptions,
               maxRetries: 0,
               abortSignal: AbortSignal.timeout(45_000),
@@ -321,16 +417,33 @@ export const designAgent = task({
                 provider: { require_parameters: true, allow_fallbacks: true },
                 structuredOutputs: { strict: false },
               }),
-            });
+            }), 48_000, "OpenRouter design generation");
             object = result.object;
             prepared = normalizePlan(object);
-            console.info("Design generation succeeded", { provider, finishReason: result.finishReason, nodesAdded: prepared.nodesAdded, edgesAdded: prepared.edgesAdded, actionsRejected: prepared.actionsRejected });
+            finishReason = result.finishReason;
+            console.info("Design generation succeeded", { provider, finishReason, nodesAdded: prepared.nodesAdded, edgesAdded: prepared.edgesAdded, actionsRejected: prepared.actionsRejected });
           } catch (fallbackError) {
-            console.error("Design provider failed", { provider, error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError) });
+            const fallbackSummary = summarizeGenerationError(fallbackError);
+            console.error("Design provider failed", { provider, ...fallbackSummary });
+            metadata.set("openrouterFailure", fallbackSummary);
             throw new Error("Both configured design providers failed to produce a usable architecture.", { cause: fallbackError });
           }
         }
       }
+      if (prepared.duplicateLabels.length > 0) {
+        console.warn("Design generation produced duplicate component labels", { labels: prepared.duplicateLabels });
+      }
+      if (prepared.excludedMatches.length > 0) {
+        console.warn("Design generation included labels matching explicit exclusions", { exclusions, matches: prepared.excludedMatches });
+      }
+      metadata.set("status", "complete")
+        .set("provider", provider)
+        .set("finishReason", finishReason ?? "")
+        .set("nodesAdded", prepared.nodesAdded)
+        .set("edgesAdded", prepared.edgesAdded)
+        .set("actionsRejected", prepared.actionsRejected)
+        .set("duplicateLabels", prepared.duplicateLabels)
+        .set("excludedMatches", prepared.excludedMatches);
 
       const requestId = crypto.randomUUID();
       for (const [index, action] of prepared.actions.entries()) {
@@ -369,11 +482,16 @@ export const designAgent = task({
       };
     } catch (error) {
       try {
+        metadata.set("status", "error").set("error", summarizeGenerationError(error));
+      } catch {
+        // Metadata updates must not hide the original task error.
+      }
+      try {
         await publishStatus("error", "Archy AI could not finish this design. Please try again.");
       } catch {
         // A status broadcast failure must not hide the original task error.
       }
-      console.error("Design agent failed", error);
+      console.error("Design agent failed", summarizeGenerationError(error));
       throw error;
     } finally {
       if (presenceStarted) {
