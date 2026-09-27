@@ -212,7 +212,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
     if (runError || run?.isFailed || run?.isCancelled) {
       if (completedRunId.current === runId) return;
       completedRunId.current = runId;
-      const message = { sender: "Archy AI", role: "assistant" as const, content: "I couldn't produce a usable architecture plan. Gemini may be out of quota or the backup model may be unavailable. Check provider limits and try again.", timestamp: Date.now() };
+      const message = { sender: "Archy AI", role: "assistant" as const, content: `Archy could not confirm a completed design run. Check the Trigger.dev run details for the cause (run ID: ${runId}).`, timestamp: Date.now() };
       void createFeedMessage("ai-chat", message).catch(() => {});
       setRunId(undefined);
       setPublicToken(undefined);
@@ -258,7 +258,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
       completedRunId.current = runId;
       const content = workerNotReady
         ? "The design worker did not start for this environment. Check that the design task is deployed to the matching Trigger.dev environment and try again."
-        : "I couldn't produce a usable architecture plan. Gemini may be out of quota or the backup model may be unavailable. Check provider limits and try again.";
+        : `No result arrived within the design wait limit. Check the Trigger.dev run details for the cause (run ID: ${runId}).`;
       void createFeedMessage("ai-chat", {
         sender: "Archy AI",
         role: "assistant",
