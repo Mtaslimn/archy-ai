@@ -65,6 +65,7 @@ import {
   type CanvasEdge,
   type CanvasNode,
   type CanvasNodeShape,
+  type DesignAction,
   type ShapeDragPayload,
 } from "@/types/canvas";
 
@@ -91,6 +92,8 @@ interface CollaborativeCanvasProps {
   roomId: string;
   onSaveStatusChange: (status: CanvasSaveStatus) => void;
   onRegisterSaveAction: (saveAction: () => void) => void;
+  onCanvasChange: (canvas: { nodes: CanvasNode[]; edges: CanvasEdge[] }) => void;
+  onRegisterDesignActionHandler: (handler: (actions: DesignAction[], requestId: string) => void) => void;
 }
 
 const nodeTypes = {
@@ -698,6 +701,8 @@ function SyncedReactFlowCanvas({
   roomId,
   onSaveStatusChange,
   onRegisterSaveAction,
+  onCanvasChange,
+  onRegisterDesignActionHandler,
 }: CollaborativeCanvasProps) {
   const { zoom } = useViewport();
   const reactFlow = useReactFlow<CanvasNode, CanvasEdge>();
@@ -722,16 +727,28 @@ function SyncedReactFlowCanvas({
       nodes: { initial: [] },
       edges: { initial: [] },
     });
-
-  useEventListener(({ event }) => {
-    if (event.type !== "AI_CANVAS_ACTION") return;
-    const action = event.action as unknown as import("@/types/canvas").DesignAction;
-
+  const aiFitViewTimeout = useRef<number | null>(null);
+  const appliedAiActionsRef = useRef(new Set<string>());
+  const applyDesignAction = useCallback((action: DesignAction, actionKey: string) => {
+    if (appliedAiActionsRef.current.has(actionKey)) return;
+    appliedAiActionsRef.current.add(actionKey);
+    if (appliedAiActionsRef.current.size > 5000) {
+      const oldest = appliedAiActionsRef.current.values().next().value;
+      if (oldest) appliedAiActionsRef.current.delete(oldest);
+    }
     switch (action.type) {
       case "add_node":
-        onNodesChange([{ type: "add", item: action.node }]);
+        if (!reactFlow.getNodes().some((node) => node.id === action.node.id)) {
+          onNodesChange([{ type: "add", item: action.node }]);
+        }
+        if (aiFitViewTimeout.current !== null) window.clearTimeout(aiFitViewTimeout.current);
+        aiFitViewTimeout.current = window.setTimeout(() => {
+          void reactFlow.fitView({ duration: 350, padding: 0.2 });
+          aiFitViewTimeout.current = null;
+        }, 120);
         break;
       case "move_node":
+        if (!reactFlow.getNodes().some((node) => node.id === action.nodeId)) break;
         onNodesChange([{
           type: "position",
           id: action.nodeId,
@@ -740,6 +757,7 @@ function SyncedReactFlowCanvas({
         }]);
         break;
       case "resize_node":
+        if (!reactFlow.getNodes().some((node) => node.id === action.nodeId)) break;
         onNodesChange([{
           type: "dimensions",
           id: action.nodeId,
@@ -748,7 +766,7 @@ function SyncedReactFlowCanvas({
         }]);
         break;
       case "update_node_data": {
-        const node = nodes.find((item) => item.id === action.nodeId);
+        const node = reactFlow.getNodes().find((item) => item.id === action.nodeId);
         if (!node) break;
         onNodesChange([{
           type: "replace",
@@ -758,21 +776,36 @@ function SyncedReactFlowCanvas({
         break;
       }
       case "delete_node": {
-        const node = nodes.find((item) => item.id === action.nodeId);
+        const node = reactFlow.getNodes().find((item) => item.id === action.nodeId);
         if (!node) break;
         onDelete({
           nodes: [node],
-          edges: edges.filter((edge) => edge.source === node.id || edge.target === node.id),
+          edges: reactFlow.getEdges().filter((edge) => edge.source === node.id || edge.target === node.id),
         });
         break;
       }
       case "add_edge":
-        onEdgesChange([{ type: "add", item: action.edge }]);
+        if (!reactFlow.getEdges().some((edge) => edge.id === action.edge.id)) {
+          onEdgesChange([{ type: "add", item: action.edge }]);
+        }
         break;
       case "delete_edge":
         onEdgesChange([{ type: "remove", id: action.edgeId }]);
         break;
     }
+  }, [onDelete, onEdgesChange, onNodesChange, reactFlow]);
+
+  const applyDesignActions = useCallback((actions: DesignAction[], requestId: string) => {
+    actions.forEach((action, index) => applyDesignAction(action, `${requestId}:${index}`));
+  }, [applyDesignAction]);
+
+  useEffect(() => {
+    onRegisterDesignActionHandler(applyDesignActions);
+  }, [applyDesignActions, onRegisterDesignActionHandler]);
+
+  useEventListener(({ event }) => {
+    if (event.type !== "AI_CANVAS_ACTION") return;
+    applyDesignAction(event.action as unknown as DesignAction, `${event.requestId}:${event.index}`);
   });
   const [isCanvasReady, setIsCanvasReady] = useState(false);
   const canvasRootRef = useRef<HTMLDivElement>(null);
@@ -786,6 +819,14 @@ function SyncedReactFlowCanvas({
     enabled: isCanvasReady,
     onStatusChange: onSaveStatusChange,
   });
+
+  useEffect(() => {
+    if (isCanvasReady) onCanvasChange({ nodes, edges });
+  }, [edges, isCanvasReady, nodes, onCanvasChange]);
+
+  useEffect(() => () => {
+    if (aiFitViewTimeout.current !== null) window.clearTimeout(aiFitViewTimeout.current);
+  }, []);
 
   useEffect(() => {
     onRegisterSaveAction(saveNow);
@@ -1073,6 +1114,8 @@ export function CollaborativeCanvas({
   roomId,
   onSaveStatusChange,
   onRegisterSaveAction,
+  onCanvasChange,
+  onRegisterDesignActionHandler,
 }: CollaborativeCanvasProps) {
   return (
     <ReactFlowProvider>
@@ -1082,6 +1125,8 @@ export function CollaborativeCanvas({
             roomId={roomId}
             onSaveStatusChange={onSaveStatusChange}
             onRegisterSaveAction={onRegisterSaveAction}
+            onCanvasChange={onCanvasChange}
+            onRegisterDesignActionHandler={onRegisterDesignActionHandler}
           />
         </ClientSideSuspense>
       </LiveblocksErrorBoundary>

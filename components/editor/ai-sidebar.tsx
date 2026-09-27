@@ -6,17 +6,16 @@ import { useRealtimeRun } from "@trigger.dev/react-hooks";
 import {
   ArrowUp,
   Bot,
-  Download,
-  FileText,
   LoaderCircle,
-  Sparkles,
   X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { SpecsPanel } from "@/components/editor/specs-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { designAgent } from "@/trigger/design-agent";
+import type { CanvasEdge, CanvasNode, DesignAction } from "@/types/canvas";
 import {
   aiChatMessageSchema,
   type AiChatMessage,
@@ -29,9 +28,12 @@ interface AiSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   roomId: string;
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  onApplyDesignActions: (actions: DesignAction[], requestId: string) => void;
 }
 
-const STATUS_FRESHNESS_MS = 180_000;
+const STATUS_FRESHNESS_MS = 45_000;
 
 function inertWorkspaceBackground(panel: HTMLElement) {
   const editorMain = panel.closest("main");
@@ -65,7 +67,7 @@ function inertWorkspaceBackground(panel: HTMLElement) {
   };
 }
 
-export function AiSidebar({ isOpen, onClose, roomId }: AiSidebarProps) {
+export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesignActions }: AiSidebarProps) {
   const panelRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -77,6 +79,10 @@ export function AiSidebar({ isOpen, onClose, roomId }: AiSidebarProps) {
   const [chatError, setChatError] = useState<string | null>(null);
   const createFeedMessage = useCreateFeedMessage();
   const { run, error: runError } = useRealtimeRun<typeof designAgent>(runId, {
+    // The hook caches realtime state by its `id` option. Keying it to each
+    // Trigger run prevents a previous run's terminal state leaking into the
+    // next prompt while the new subscription is connecting.
+    id: `design-agent-${runId ?? "idle"}`,
     accessToken: publicToken,
     enabled: Boolean(runId && publicToken),
   });
@@ -188,10 +194,13 @@ export function AiSidebar({ isOpen, onClose, roomId }: AiSidebarProps) {
   const completedRunId = useRef<string | null>(null);
   useEffect(() => {
     if (!runId || !publicToken) return;
-    if (runError) {
+    // A newly keyed subscription may briefly have no run data. Never treat
+    // cached data from another run as this run's completion or failure.
+    if (run && run.id !== runId) return;
+    if (runError || run?.isFailed || run?.isCancelled) {
       if (completedRunId.current === runId) return;
       completedRunId.current = runId;
-      const message = { sender: "Archy AI", role: "assistant" as const, content: "Archy AI could not finish this design. Please try again.", timestamp: Date.now() };
+      const message = { sender: "Archy AI", role: "assistant" as const, content: "I couldn't produce a usable architecture plan. Gemini may be out of quota or the backup model may be unavailable. Check provider limits and try again.", timestamp: Date.now() };
       void createFeedMessage("ai-chat", message).catch(() => {});
       setRunId(undefined);
       setPublicToken(undefined);
@@ -201,11 +210,16 @@ export function AiSidebar({ isOpen, onClose, roomId }: AiSidebarProps) {
     if (completedRunId.current === runId) return;
     completedRunId.current = runId;
     const output = run.isCompleted && run.output && typeof run.output === "object"
-      ? (run.output as { applied?: unknown }).applied
+      ? run.output as { applied?: unknown; nodesAdded?: unknown; edgesAdded?: unknown; provider?: unknown; requestId?: unknown; actions?: unknown }
       : undefined;
+    if (Array.isArray(output?.actions) && typeof output.requestId === "string") {
+      onApplyDesignActions(output.actions as DesignAction[], output.requestId);
+    }
+    const applied = output?.applied;
+    const nodesAdded = output?.nodesAdded;
     const content = run.isCompleted
-      ? typeof output === "number"
-        ? output > 0 ? `Design update complete. Applied ${output} canvas ${output === 1 ? "change" : "changes"}.` : "Design complete. No canvas changes were needed."
+      ? typeof applied === "number" && typeof nodesAdded === "number"
+        ? `Design update complete with ${typeof output?.provider === "string" ? output.provider : "AI"}. Added ${nodesAdded} ${nodesAdded === 1 ? "component" : "components"} across ${applied} canvas changes.`
         : "Design update complete."
       : "Archy AI could not finish this design. Please try again.";
     void createFeedMessage("ai-chat", {
@@ -216,7 +230,7 @@ export function AiSidebar({ isOpen, onClose, roomId }: AiSidebarProps) {
     }).catch(() => {});
     setRunId(undefined);
     setPublicToken(undefined);
-  }, [createFeedMessage, publicToken, run, runError, runId]);
+  }, [createFeedMessage, onApplyDesignActions, publicToken, run, runError, runId]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
@@ -448,44 +462,12 @@ export function AiSidebar({ isOpen, onClose, roomId }: AiSidebarProps) {
           </TabsContent>
 
           <TabsContent value="specs" className="min-h-0 flex-1 pt-3">
-            <div className="flex h-full flex-col gap-4">
-              <Button
-                type="button"
-                disabled
-                title="Spec generation is not connected yet"
-                className="w-full bg-brand text-background hover:bg-brand/90"
-              >
-                <Sparkles className="h-4 w-4" />
-                Generate Spec
-              </Button>
-
-              <article className="rounded-xl border border-surface-border bg-elevated p-3">
-                <div className="flex items-start gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-subtle text-ai-text">
-                    <FileText className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-sm font-medium text-copy-primary">
-                      System Architecture Spec
-                    </h3>
-                    <p className="mt-1 line-clamp-3 text-xs leading-5 text-copy-muted">
-                      An overview of the system components, their connections,
-                      and the responsibilities of each service.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Download spec"
-                    title="Download spec"
-                    disabled
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </div>
-              </article>
-            </div>
+            <SpecsPanel
+              projectId={roomId}
+              nodes={nodes}
+              edges={edges}
+              chatHistory={validatedChatMessages.slice(-100).map(({ sender, role, content, timestamp }) => ({ sender, role, content, timestamp }))}
+            />
           </TabsContent>
         </Tabs>
       </aside>

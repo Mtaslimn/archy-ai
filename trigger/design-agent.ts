@@ -26,37 +26,30 @@ const designPlanSchema = jsonSchema<DesignPlan>({
   properties: {
     actions: {
       type: "array",
+      minItems: 1,
       maxItems: 60,
       items: {
         type: "object",
-        required: ["type"],
+        required: ["type", "ref", "label", "shape", "x", "y", "source", "target"],
+        additionalProperties: false,
         properties: {
           type: {
             type: "string",
-            enum: [
-              "add_node",
-              "move_node",
-              "resize_node",
-              "update_node_data",
-              "delete_node",
-              "add_edge",
-              "delete_edge",
-            ],
+            enum: ["add_node", "move_node", "resize_node", "update_node_data", "delete_node", "add_edge", "delete_edge"],
           },
-          label: { type: "string" },
           ref: { type: "string" },
+          label: { type: "string" },
           shape: { type: "string", enum: NODE_SHAPES },
           color: { type: "string", enum: Object.values(NODE_COLORS).map((pair) => pair.fill) },
           x: { type: "number" },
           y: { type: "number" },
+          source: { type: "string" },
+          target: { type: "string" },
           nodeId: { type: "string" },
           width: { type: "number" },
           height: { type: "number" },
-          source: { type: "string" },
-          target: { type: "string" },
           edgeId: { type: "string" },
         },
-        additionalProperties: false,
       },
     },
   },
@@ -188,6 +181,7 @@ function normalizeAction(
     const source = refToId.get(sourceRef) ?? sourceRef;
     const target = refToId.get(targetRef) ?? targetRef;
     if (!nodeById.has(source) || !nodeById.has(target) || source === target) return null;
+    if (graph.edges.some((edge) => edge.source === source && edge.target === target)) return null;
     const id = `ai-edge-${index}-${crypto.randomUUID()}`;
     const label = typeof raw.label === "string" ? raw.label.trim().slice(0, 80) : "";
     const edge: CanvasEdge = {
@@ -213,7 +207,9 @@ export { type DesignAction };
 
 export const designAgent = task({
   id: "design-agent",
-  retry: { maxAttempts: 2 },
+  // Provider failures are handled by the explicit fallback below. Re-running
+  // the whole task would repeat quota-limited calls and duplicate canvas work.
+  retry: { maxAttempts: 1 },
   run: async (payload: { prompt: string; roomId: string }) => {
     const liveblocks = getLiveblocksClient();
     const userId = "archy-ai-agent";
@@ -260,7 +256,8 @@ export const designAgent = task({
       await publishStatus("start", "Archy AI started working on your design.");
 
       const storedCanvas = await liveblocks.getStorageDocument(payload.roomId, "json");
-      const graph = readCanvas(storedCanvas);
+      const canvas = readCanvas(storedCanvas);
+      const graph = { nodes: [...canvas.nodes], edges: [...canvas.edges] };
       const anchor = graph.nodes.at(-1)?.position ?? { x: 0, y: 0 };
       await liveblocks.setPresence(payload.roomId, {
         userId,
@@ -270,50 +267,79 @@ export const designAgent = task({
       });
       await publishStatus("processing", "Analyzing the existing canvas and planning updates.");
 
+      const hasCanvas = graph.nodes.length > 0;
       const generationOptions = {
         schema: designPlanSchema,
-        system: `You are Archy AI, an architecture diagram designer. Return a concise ordered set of canvas actions that satisfy the user's request. Reuse or adjust existing components when appropriate. Allowed shapes: ${NODE_SHAPES.join(", ")}. Allowed fill colors: ${Object.entries(NODE_COLORS).map(([name, pair]) => `${name}=${pair.fill}`).join(", ")}. Keep labels concise. New node size uses its shape's standard size. Arrange newly created components left-to-right with at least 220px horizontal spacing and 170px vertical spacing; avoid overlap with existing nodes. Existing nodes and edges are provided as context. Give every add_node action a unique ref. Only reference existing node IDs in move, resize, update, or delete_node actions. For add_edge actions, source and target must be existing node IDs or refs of nodes added earlier in this action list. Do not create unsupported action types.`,
+        system: `You are Archy AI, designing the system described by the user's request, not this canvas application. Identify the domain, requirements, actors, and explicit constraints; then choose only components needed to satisfy them. Every component needs a requirement-based purpose, and every edge must represent a real interaction or data flow. Do not assume realtime behavior, chat, presence, caching, queues, microservices, cloud providers, or scalability. Mentions in examples or negative statements are not requirements; respect explicit exclusions. Avoid generic templates and prefer domain-specific labels when justified. Correctness matters more than sophistication or node count. ${hasCanvas ? "Treat existing canvas content as context, not as correct by default. Add, edit, move, or delete components and edges as needed for the latest request." : "Create only the architecture justified by the request; do not require a fixed node count or force isolated components into a connected graph."} Return ordered actions using only the allowed action types. Every action must include ref, label, shape, x, y, source, and target because the output format requires them. For add_node, provide a unique ref, concise label, valid shape and numeric x/y; set source and target to empty strings. For add_edge, set source and target to existing node IDs or refs created earlier; set ref and label to empty strings, shape to rectangle, and x/y to 0. For move_node include its existing nodeId and destination x/y. For resize_node include nodeId, width, and height. For update_node_data include nodeId and a non-empty label; shape and color are optional. For delete_node include its existing nodeId; for delete_edge include its existing edgeId. For non-add actions, set ref and source/target to empty strings and set unused label/shape/x/y values to empty label, rectangle, and 0. Allowed shapes: ${NODE_SHAPES.join(", ")}. Allowed fill colors: ${Object.entries(NODE_COLORS).map(([name, pair]) => `${name}=${pair.fill}`).join(", ")}. Place nodes with readable spacing and avoid overlap.`,
         prompt: `User request:\n${payload.prompt}\n\nCurrent canvas graph:\n${JSON.stringify(graph)}`,
-        abortSignal: AbortSignal.timeout(120_000),
+      };
+      const normalizePlan = (plan: DesignPlan) => {
+        const workingGraph: { nodes: CanvasNode[]; edges: CanvasEdge[] } = {
+          nodes: graph.nodes.map((node) => ({ ...node, position: { ...node.position }, data: { ...node.data } })),
+          edges: graph.edges.map((edge) => ({ ...edge, data: { ...edge.data } })),
+        };
+        const refs = new Map<string, string>();
+        const actions = plan.actions.flatMap((raw, index) => {
+          const action = normalizeAction(raw, workingGraph, index, refs);
+          return action ? [action] : [];
+        });
+        const nodesAdded = actions.filter((action) => action.type === "add_node").length;
+        const edgesAdded = actions.filter((action) => action.type === "add_edge").length;
+        if (actions.length === 0 || (!hasCanvas && nodesAdded === 0)) {
+          throw new Error(`Model returned no usable architecture actions (nodes=${nodesAdded}, edges=${edgesAdded}).`);
+        }
+        return { actions, nodesAdded, edgesAdded, actionsRejected: plan.actions.length - actions.length };
       };
       let object: DesignPlan;
+      let prepared: ReturnType<typeof normalizePlan>;
+      let provider = "gemini";
       try {
-        ({ object } = await generateObject({
+        const result = await generateObject({
           ...generationOptions,
           model: google("gemini-3.8-flash"),
-          // Keep local AI SDK validation while avoiding Gemini's strict schema rejection.
-          providerOptions: { google: { structuredOutputs: false } },
-        }));
+          maxRetries: 0,
+          abortSignal: AbortSignal.timeout(25_000),
+        });
+        object = result.object;
+        prepared = normalizePlan(object);
+        console.info("Design generation succeeded", { provider, finishReason: result.finishReason, nodesAdded: prepared.nodesAdded, edgesAdded: prepared.edgesAdded, actionsRejected: prepared.actionsRejected });
       } catch (primaryError) {
+        console.warn("Design provider failed", { provider, error: primaryError instanceof Error ? primaryError.message : String(primaryError) });
         const apiKey = process.env.OPENROUTER_API_KEY;
         if (!apiKey) {
-          throw new Error(
-            "Gemini design generation failed and OPENROUTER_API_KEY is not configured for the OpenRouter fallback.",
-            { cause: primaryError },
-          );
+          throw new Error("Gemini failed and OPENROUTER_API_KEY is not configured for fallback.", { cause: primaryError });
+        } else {
+          try {
+            console.info("Trying OpenRouter after Gemini failure");
+            const openrouter = createOpenRouter({ apiKey });
+            provider = "openrouter";
+            const result = await generateObject({
+              ...generationOptions,
+              maxRetries: 0,
+              abortSignal: AbortSignal.timeout(45_000),
+              model: openrouter(process.env.OPENROUTER_DESIGN_MODEL || "openrouter/free", {
+                provider: { require_parameters: true, allow_fallbacks: true },
+                structuredOutputs: { strict: false },
+              }),
+            });
+            object = result.object;
+            prepared = normalizePlan(object);
+            console.info("Design generation succeeded", { provider, finishReason: result.finishReason, nodesAdded: prepared.nodesAdded, edgesAdded: prepared.edgesAdded, actionsRejected: prepared.actionsRejected });
+          } catch (fallbackError) {
+            console.error("Design provider failed", { provider, error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError) });
+            throw new Error("Both configured design providers failed to produce a usable architecture.", { cause: fallbackError });
+          }
         }
-
-        console.warn("Gemini 3.8 Flash failed; retrying design generation with OpenRouter Qwen3.8 27B Free", primaryError);
-        const openrouter = createOpenRouter({ apiKey });
-        ({ object } = await generateObject({
-          ...generationOptions,
-          model: openrouter("qwen/qwen3.8-27b:free", {
-            provider: { require_parameters: true, allow_fallbacks: true },
-            structuredOutputs: { strict: false },
-          }),
-        }));
       }
 
-      let applied = 0;
-      const refToId = new Map<string, string>();
-      for (const [index, raw] of object.actions.entries()) {
-        const action = normalizeAction(raw, graph, index, refToId);
-        if (!action) continue;
+      const requestId = crypto.randomUUID();
+      for (const [index, action] of prepared.actions.entries()) {
         await liveblocks.broadcastEvent(payload.roomId, {
           type: "AI_CANVAS_ACTION" as const,
+          requestId,
+          index,
           action: action as unknown as JsonObject,
         });
-        applied += 1;
         const cursor = action.type === "add_node"
           ? action.node.position
           : action.type === "move_node"
@@ -329,11 +355,18 @@ export const designAgent = task({
 
       await publishStatus(
         "complete",
-        applied > 0
-          ? `Design update complete. Applied ${applied} canvas ${applied === 1 ? "change" : "changes"}.`
-          : "Design complete. No canvas changes were needed.",
+        `Design generated with ${provider}. Added ${prepared.nodesAdded} ${prepared.nodesAdded === 1 ? "component" : "components"} and ${prepared.edgesAdded} connections.`,
       );
-      return { ok: true, applied };
+      return {
+        ok: true,
+        applied: prepared.actions.length,
+        nodesAdded: prepared.nodesAdded,
+        edgesAdded: prepared.edgesAdded,
+        provider,
+        actionsRejected: prepared.actionsRejected,
+        requestId,
+        actions: prepared.actions,
+      };
     } catch (error) {
       try {
         await publishStatus("error", "Archy AI could not finish this design. Please try again.");

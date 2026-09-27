@@ -18,6 +18,8 @@ declare global {
 
     RoomEvent: {
       type: "AI_CANVAS_ACTION";
+      requestId: string;
+      index: number;
       action: import("@liveblocks/client").JsonObject;
     };
 
