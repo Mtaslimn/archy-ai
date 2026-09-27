@@ -23,6 +23,7 @@ import {
   type ProjectListItem,
 } from "@/hooks/use-project-manager";
 import type { CanvasSaveStatus } from "@/hooks/use-canvas-autosave";
+import type { CanvasEdge, CanvasNode, DesignAction } from "@/types/canvas";
 
 interface EditorWorkspaceShellProps {
   project: ProjectListItem;
@@ -44,6 +45,14 @@ function RoomWorkspaceContent({
   onSaveStatusChange: (status: CanvasSaveStatus) => void;
   onRegisterSaveAction: (saveAction: () => void) => void;
 }) {
+  const [canvas, setCanvas] = useState<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>({ nodes: [], edges: [] });
+  const applyDesignActionsRef = useRef<(actions: DesignAction[], requestId: string) => void>(() => {});
+  const registerDesignActionHandler = useCallback((handler: (actions: DesignAction[], requestId: string) => void) => {
+    applyDesignActionsRef.current = handler;
+  }, []);
+  const applyDesignActions = useCallback((actions: DesignAction[], requestId: string) => {
+    applyDesignActionsRef.current(actions, requestId);
+  }, []);
   const createFeed = useCreateFeed();
   const { feeds, isLoading, error } = useFeeds();
   const [areFeedsReady, setAreFeedsReady] = useState(false);
@@ -77,11 +86,20 @@ function RoomWorkspaceContent({
           roomId={roomId}
           onSaveStatusChange={onSaveStatusChange}
           onRegisterSaveAction={onRegisterSaveAction}
+          onCanvasChange={setCanvas}
+          onRegisterDesignActionHandler={registerDesignActionHandler}
         />
       </section>
 
       {canRenderSidebar ? (
-        <AiSidebar isOpen={isAiSidebarOpen} onClose={onCloseAiSidebar} roomId={roomId} />
+        <AiSidebar
+          isOpen={isAiSidebarOpen}
+          onClose={onCloseAiSidebar}
+          roomId={roomId}
+          nodes={canvas.nodes}
+          edges={canvas.edges}
+          onApplyDesignActions={applyDesignActions}
+        />
       ) : null}
     </div>
   );

@@ -24,10 +24,10 @@
 ## Storage Model
 
 - **Database**: metadata, ownership, relationships, and task run records.
-- **Vercel Blob**: generated artifacts — canvas snapshots at `canvas/{projectId}.json` and specs at `specs/{projectId}/{specId}.md`.
+- **Vercel Blob**: generated artifacts — canvas snapshots at `canvas/{projectId}.json` and private specs at `specs/{projectId}/{specId}.md`.
 - Project records, spec records, and task run records belong in PostgreSQL.
 - Canvas content and Markdown output are stored in and retrieved from Vercel Blob.
-- The blob URL is stored in the database (`canvasJsonPath`, `filePath`) as the reference to the artifact.
+- The blob URL is stored in the database (`canvasJsonPath`, `ProjectSpec.filePath`) as the reference to the artifact. Spec Blob URLs remain private; downloads pass through an authenticated project access check.
 
 ## Auth and Collaboration Model
 
@@ -52,12 +52,18 @@
 - Input: user prompt, project context, and current canvas state.
 - Execution: durable background task via Trigger.dev.
 - Output: structured node and edge updates written into the shared Liveblocks room.
+- Provider calls disable SDK retries and use separate bounded timeouts so quota errors fail over promptly; the task itself is not retried because provider fallback is handled in the task and rerunning could duplicate canvas mutations.
+- OpenRouter uses its free-model router by default (`openrouter/free`) so it can select an available model that supports the required structured output. `OPENROUTER_DESIGN_MODEL` can pin a specific model.
+- Architecture output is derived from the user's requirements. Component count is not fixed, edges are not added merely to connect the graph, and existing canvas content can be edited or removed when it does not satisfy the latest request. The prompt asks the model to identify domain, requirements, actors, and exclusions; avoid assuming common infrastructure; and give every component and edge a requirement-based purpose. Gemini's native structured output is enabled; the installed Google provider defaults it on, and the action schema uses supported JSON Schema constructs without unions.
+- Gemini is attempted first and OpenRouter is attempted when configured after a Gemini generation or normalization failure. If both fail, or OpenRouter is not configured after Gemini fails, the task reports failure; it never silently writes a static architecture template. Provider, finish reason, generated/rejected action counts, and failures are logged without credentials or prompt contents. Since Liveblocks broadcast events are ephemeral, the Trigger run also returns the action plan; the initiating client applies that result through `useLiveblocksFlow` with request-scoped deduplication, so missed broadcasts are recovered without duplicating changes.
 
 ### Spec Generation
 
 - Input: current canvas graph and project context.
 - Execution: durable background task via Trigger.dev.
-- Output: Markdown technical spec saved to the filesystem and linked to the project in the database.
+- Output: Markdown technical spec saved to private Vercel Blob and linked to the project through a metadata-only `ProjectSpec` record.
+- Provider calls disable SDK retries and use bounded timeouts to allow complete Markdown responses while failing over from unavailable providers. Groq GPT OSS 120B is first (`GROQ_API_KEY`, configurable with `GROQ_SPEC_MODEL`); Gemini is second; OpenRouter uses `openrouter/free` by default as the final fallback, configurable with `OPENROUTER_SPEC_MODEL`.
+- The Specs tab submits the current collaborative canvas and recent chat history, subscribes to the Trigger.dev run, and refreshes the persisted spec list on completion.
 
 ## Invariants
 

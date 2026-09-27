@@ -4,11 +4,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Spec generation backend
+- Spec UI integration
 
 ## Current Goal
 
-- Spec generation backend from [27-spec-generation-flow.md](feature-specs/27-spec-generation-flow.md) is implemented and production-build verified.
+- Ensure AI architecture requests produce visible, persistent canvas nodes and edges, recover if ephemeral events are missed, and connect spec generation to the Specs tab.
 
 ## Completed
 
@@ -98,21 +98,23 @@ Update this file whenever the current phase, active feature, or implementation s
 - Confirmed `npm run build` passes after implementing the design agent frontend.
 - Added `POST /api/ai/spec` with Zod request validation, access resolution from the supplied Liveblocks room ID, Trigger.dev task dispatch, and initiating-user `TaskRun` persistence; client-supplied project IDs are not accepted.
 - Added `POST /api/ai/spec/token` with authenticated run-owner checks and a run-scoped Trigger.dev public token that expires after one hour.
-- Added the Zod-validated `generate-spec` Trigger.dev task. It generates plain Markdown from the canvas and chat context, records processing/completion/error metadata, logs retries and outcomes, and returns the Markdown as task output.
+- Added the Zod-validated `generate-spec` Trigger.dev task. It generates plain Markdown from the canvas and chat context, records processing/completion/error metadata, logs retries and outcomes, and returns the persisted spec ID.
 - Spec generation uses Gemini 3.8 Flash first and falls back to the existing OpenRouter `qwen/qwen3.8-27b:free` model via `OPENROUTER_API_KEY` if Gemini fails.
 - Confirmed `npm run build` passes after implementing spec generation.
+- Added the Prisma `ProjectSpec` metadata model and additive migration. The generation task uploads Markdown to private Vercel Blob and stores its URL in `ProjectSpec.filePath`.
+- Added the authenticated spec download route with project membership and project/spec relationship checks; it streams Markdown as an attachment without exposing the Blob URL.
 
 ## In Progress
 
-- Verify AI design and spec generation in a configured Trigger.dev, Gemini/OpenRouter, and Liveblocks environment.
+- Verify live architecture generation through Trigger.dev and Liveblocks, plus spec generation and retrieval through the Specs tab.
 
 ## Next Up
 
-- Ready for review or additional feature specifications.
+- Wire the generated `specId` into the later spec UI integration feature.
 
 ## Open Questions
 
-- Add unresolved product or implementation questions here.
+- Consider adding direct Groq as a provider fallback; Groq currently offers a free tier with per-model rate limits, and supports the OpenAI-compatible API.
 
 ## Architecture Decisions
 
@@ -122,7 +124,9 @@ Update this file whenever the current phase, active feature, or implementation s
 - Project IDs are generated on create from the slugified project name plus a short unique suffix so the project ID and Liveblocks room ID can match.
 - Workspace access is granted only to project owners or collaborators matching the current user's primary Clerk email.
 - Design task requests require access to the project and require `roomId` to match the project ID. Each Trigger.dev run is recorded against the initiating Clerk user and project; its public token grants read access to that run only.
-- Spec task requests resolve project access exclusively from the authenticated user and `roomId`; each run is recorded against its initiating Clerk user and resolved project. Its public token grants read access to that run only and expires after one hour. Gemini is the primary spec model and the existing OpenRouter Qwen 3.8 27B Free model is the fallback.
+- Spec task requests resolve project access exclusively from the authenticated user and `roomId`; each run is recorded against its initiating Clerk user and resolved project. Its public token grants read access to that run only and expires after one hour. Gemini is the primary spec model and OpenRouter's free-model router is the fallback by default.
+- Generated specs are stored as private Vercel Blob objects; Prisma `ProjectSpec` records store only the blob URL and project relationship. Downloads require authenticated project access and a matching project/spec record.
+- AI model calls use zero automatic SDK retries and bounded per-provider timeouts. Design and spec tasks perform explicit Gemini-to-OpenRouter fallback and are configured for a single task attempt to avoid repeated quota calls and duplicate side effects. OpenRouter's free model router is the default fallback; model IDs can be pinned with `OPENROUTER_DESIGN_MODEL` and `OPENROUTER_SPEC_MODEL`.
 - AI canvas mutations are broadcast as typed Liveblocks room events and applied by connected clients through the existing `useLiveblocksFlow` change handlers. AI presence uses short-lived Liveblocks presence with cursor and thinking fields.
 - AI activity status is written to a room-scoped Liveblocks `ai-status-feed`; sidebar clients validate and display only the latest message.
 - Collaborative sidebar chat messages are written to a separate room-scoped `ai-chat` feed; client rendering validates the message payload with Zod.
@@ -154,3 +158,8 @@ Update this file whenever the current phase, active feature, or implementation s
 - `context/feature-specs/25-sidebar-chat-feed.md` is implemented: separate room chat feed, validated and ordered messages, shared composer send/error handling, and production build.
 - `context/feature-specs/26-design-agent-frontend.md` is implemented: AI prompt submission, run-scoped realtime status tracking, active status strip, collaborative chat completion/errors, and production build.
 - `context/feature-specs/27-spec-generation-flow.md` is implemented: authenticated spec task API, owner-scoped one-hour run token, Zod-validated Trigger.dev task, Gemini with OpenRouter Qwen fallback, task metadata status, and production build verification.
+
+- `context/feature-specs/28-spec-persistence-download.md` is implemented: private Blob storage, metadata-only `ProjectSpec`, project-authorized Markdown attachment route, and production build verification.
+- `context/feature-specs/29-spec-ui-integration.md` is implemented: the Specs tab loads project metadata, previews Markdown through an authenticated content route, and downloads through the attachment endpoint. The repository did not contain the referenced ProjectSpec list/content API, so added minimal authenticated read-only GET handlers using the existing project access and private Blob patterns.
+- AI failure handling update: configured Gemini and OpenRouter credentials both pass live authentication checks. Gemini `gemini-3.8-flash` currently returns quota HTTP 429; OpenRouter's pinned Qwen free endpoint currently returns upstream rate-limit HTTP 429, while OpenRouter `openrouter/free` successfully returns structured output. Provider calls now skip automatic retries, use separate 25-second / 45-second timeouts, and the frontend clears failed runs and posts a provider-aware recovery message. Full Trigger.dev + Liveblocks end-to-end verification remains outstanding.
+- Architecture generation root-cause repair: removed keyword-based chat/general templates, removed the fixed 5–8 node target and automatic connectivity repair, strengthened the requirement/exclusion-focused generation prompt, and made complete provider failure visible instead of silently generating an unrelated diagram. Logs now identify provider outcomes and accepted/rejected action counts; successful run output and UI identify the provider. Normalization rejects invalid references, self-loops, and duplicate directed edges. Updated architecture and feature context to reflect these invariants. Provider prompt-matrix and live Trigger.dev/Liveblocks verification remain outstanding.

@@ -6,12 +6,21 @@ import { defineConfig } from "prisma/config";
 config();
 config({ path: ".env.local", override: true });
 
+// Prisma Postgres runtime queries use the pooled URL, while Prisma CLI schema
+// commands need a direct connection. Keep an explicit DIRECT_URL when set,
+// and derive it for local Prisma Postgres URLs so existing local setup works.
+const pooledDatabaseUrl = process.env["DATABASE_URL"];
+const directDatabaseUrl = process.env["DIRECT_URL"] ?? pooledDatabaseUrl?.replace(
+  "@pooled.db.prisma.io:",
+  "@db.prisma.io:",
+);
+
 export default defineConfig({
   schema: "prisma/",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: directDatabaseUrl,
   },
 });

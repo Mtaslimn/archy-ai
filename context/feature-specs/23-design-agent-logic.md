@@ -2,6 +2,8 @@ Implement the full AI design agent so a user prompt results in real-time updates
 
 ## Implementation
 
+Architecture content is requirement-driven: there is no static architecture fallback, fixed node-count target, or automatic edge repair to force graph connectivity. A Gemini generation/normalization failure falls through to OpenRouter when configured; if that provider also fails (or is not configured), the run fails visibly. Provider outcomes and action acceptance/rejection counts are logged without prompts or secrets. Gemini native structured outputs use the installed provider's default; the action schema avoids unions, which Google structured output does not support. The model is instructed to respect exclusions, justify components and flows from requirements, and treat existing canvas content as editable context.
+
 1. Update the design agent task in `trigger/design-agent.ts`.
 
    Before implementing:
