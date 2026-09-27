@@ -75,6 +75,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [runId, setRunId] = useState<string>();
   const [publicToken, setPublicToken] = useState<string>();
+  const runStartedAt = useRef<number | undefined>(undefined);
   const [hasFreshActiveStatus, setHasFreshActiveStatus] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const createFeedMessage = useCreateFeedMessage();
@@ -86,6 +87,9 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
     accessToken: publicToken,
     enabled: Boolean(runId && publicToken),
   });
+  const hasRealtimeRun = Boolean(run);
+  const runStatus = typeof run?.status === "string" ? run.status : "";
+  const runMatchesActiveId = !run || run.id === runId;
   const self = useSelf();
   const { messages: statusMessages } = useFeedMessages("ai-status-feed");
   const { messages: chatMessages } = useFeedMessages("ai-chat");
@@ -146,6 +150,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, roomId, projectId: roomId }),
+        signal: AbortSignal.timeout(15_000),
       });
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok || typeof payload !== "object" || payload === null || !("runId" in payload) || typeof payload.runId !== "string") {
@@ -153,6 +158,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
       }
 
       setRunId(payload.runId);
+      runStartedAt.current = Date.now();
 
       let tokenResponse: Response | null = null;
       let tokenPayload: unknown = null;
@@ -162,6 +168,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ runId: payload.runId }),
+            signal: AbortSignal.timeout(15_000),
           });
           tokenPayload = await tokenResponse.json().catch(() => null);
         } catch {
@@ -173,11 +180,16 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
         }
       }
       if (!tokenResponse?.ok || typeof tokenPayload !== "object" || tokenPayload === null || !("token" in tokenPayload) || typeof tokenPayload.token !== "string") {
+        setRunId(undefined);
+        runStartedAt.current = undefined;
         throw new Error("Unable to connect to the design task. Please try again.");
       }
 
       setPublicToken(tokenPayload.token);
     } catch (error) {
+      setRunId(undefined);
+      setPublicToken(undefined);
+      runStartedAt.current = undefined;
       const text = error instanceof Error ? error.message : "Design request failed. Please try again.";
       setChatError(text);
       await createFeedMessage("ai-chat", {
@@ -204,6 +216,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
       void createFeedMessage("ai-chat", message).catch(() => {});
       setRunId(undefined);
       setPublicToken(undefined);
+      runStartedAt.current = undefined;
       return;
     }
     if (!run?.isCompleted && !run?.isFailed && !run?.isCancelled) return;
@@ -230,19 +243,21 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
     }).catch(() => {});
     setRunId(undefined);
     setPublicToken(undefined);
+    runStartedAt.current = undefined;
   }, [createFeedMessage, onApplyDesignActions, publicToken, run, runError, runId]);
 
   useEffect(() => {
     if (!runId || !publicToken) return;
-    if (run && run.id !== runId) return;
-    const status = typeof run?.status === "string" ? run.status : "";
-    const workerNotReady = !run || status === "WAITING_FOR_DEPLOY" || status === "DELAYED" || status === "QUEUED";
-    const timeoutMs = workerNotReady ? 45_000 : 150_000;
+    if (!runMatchesActiveId) return;
+    const workerNotReady = !hasRealtimeRun || runStatus === "PENDING_VERSION" || runStatus === "DELAYED" || runStatus === "QUEUED";
+    const timeoutMs = workerNotReady ? 45_000 : 180_000;
+    const deadline = (runStartedAt.current ?? Date.now()) + timeoutMs;
+    const remainingMs = Math.max(0, deadline - Date.now());
     const timeoutId = window.setTimeout(() => {
       if (completedRunId.current === runId) return;
       completedRunId.current = runId;
       const content = workerNotReady
-        ? "The design worker did not start. Make sure Trigger.dev is running (`npx trigger.dev@latest dev`) and try again."
+        ? "The design worker did not start for this environment. Check that the design task is deployed to the matching Trigger.dev environment and try again."
         : "I couldn't produce a usable architecture plan. Gemini may be out of quota or the backup model may be unavailable. Check provider limits and try again.";
       void createFeedMessage("ai-chat", {
         sender: "Archy AI",
@@ -253,9 +268,10 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
       setChatError(content);
       setRunId(undefined);
       setPublicToken(undefined);
-    }, timeoutMs);
+      runStartedAt.current = undefined;
+    }, remainingMs);
     return () => window.clearTimeout(timeoutId);
-  }, [createFeedMessage, publicToken, run, runId]);
+  }, [createFeedMessage, hasRealtimeRun, publicToken, runMatchesActiveId, runStatus, runId]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");

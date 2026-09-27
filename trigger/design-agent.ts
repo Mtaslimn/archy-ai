@@ -93,7 +93,7 @@ function normalizeAction(
 
   if (type === "add_node") {
     const ref = typeof raw.ref === "string" ? raw.ref.trim() : "";
-    if (ref && refToId.has(ref)) return null;
+    if (!ref || refToId.has(ref)) return null;
     const shape = NODE_SHAPES.includes(raw.shape as (typeof NODE_SHAPES)[number])
       ? raw.shape as CanvasNode["data"]["shape"]
       : "rectangle";
@@ -206,13 +206,11 @@ function normalizeAction(
 function summarizeGenerationError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (NoObjectGeneratedError.isInstance(error)) {
-    return {
-      name: error.name,
-      message,
-      finishReason: error.finishReason,
-      cause: error.cause instanceof Error ? error.cause.message : error.cause ? String(error.cause) : undefined,
-      text: typeof error.text === "string" ? error.text.slice(0, 2000) : undefined,
-    };
+    const summary: Record<string, string> = { name: error.name, message };
+    if (error.finishReason) summary.finishReason = error.finishReason;
+    if (error.cause) summary.cause = error.cause instanceof Error ? error.cause.message : String(error.cause);
+    if (typeof error.text === "string") summary.text = error.text.slice(0, 2000);
+    return summary;
   }
   return { name: error instanceof Error ? error.name : "Error", message };
 }
@@ -353,14 +351,26 @@ Return ordered actions using only the allowed action types. Every action must in
           edges: graph.edges.map((edge) => ({ ...edge, data: { ...edge.data } })),
         };
         const refs = new Map<string, string>();
+        const addedLabels = new Set<string>();
+        const duplicateLabels = new Set<string>();
         const actions = plan.actions.flatMap((raw, index) => {
+          if (raw.type === "add_node") {
+            const normalizedLabel = typeof raw.label === "string" ? raw.label.trim().toLocaleLowerCase() : "";
+            if (normalizedLabel && addedLabels.has(normalizedLabel)) {
+              duplicateLabels.add(normalizedLabel);
+              return [];
+            }
+            const action = normalizeAction(raw, workingGraph, index, refs);
+            if (action?.type === "add_node") addedLabels.add(normalizedLabel);
+            return action ? [action] : [];
+          }
           const action = normalizeAction(raw, workingGraph, index, refs);
           return action ? [action] : [];
         });
         const nodesAdded = actions.filter((action) => action.type === "add_node").length;
         const edgesAdded = actions.filter((action) => action.type === "add_edge").length;
         const labels = labelsFromActions(actions);
-        const duplicateLabels = [...new Set(labels.filter((label, index) => labels.indexOf(label) !== index))];
+        const duplicateLabelsFromUpdates = labels.filter((label, index) => labels.indexOf(label) !== index);
         const excludedMatches = labels.filter((label) => {
           const normalized = label.toLowerCase();
           return exclusions.some((term) => {
@@ -376,7 +386,7 @@ Return ordered actions using only the allowed action types. Every action must in
           nodesAdded,
           edgesAdded,
           actionsRejected: plan.actions.length - actions.length,
-          duplicateLabels,
+          duplicateLabels: [...duplicateLabels, ...duplicateLabelsFromUpdates],
           excludedMatches,
         };
       };

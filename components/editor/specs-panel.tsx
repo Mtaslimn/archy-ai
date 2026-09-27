@@ -73,6 +73,7 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
   const [contentError, setContentError] = useState<string | null>(null);
   const [runId, setRunId] = useState<string>();
   const [publicToken, setPublicToken] = useState<string>();
+  const runStartedAt = useRef<number | undefined>(undefined);
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -80,6 +81,8 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
     accessToken: publicToken,
     enabled: Boolean(runId && publicToken),
   });
+  const hasRealtimeRun = Boolean(run);
+  const runStatus = typeof run?.status === "string" ? run.status : "";
 
   const loadSpecs = useCallback(async () => {
     try {
@@ -119,6 +122,7 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
       setGenerationMessage(null);
       setRunId(undefined);
       setPublicToken(undefined);
+      runStartedAt.current = undefined;
       return;
     }
     if (!run?.isSuccess || completedRunId.current === runId) return;
@@ -128,27 +132,30 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
     void loadSpecs();
     setRunId(undefined);
     setPublicToken(undefined);
+    runStartedAt.current = undefined;
   }, [loadSpecs, publicToken, run, runError, runId]);
 
   useEffect(() => {
     if (!runId || !publicToken) return;
-    const status = typeof run?.status === "string" ? run.status : "";
-    const workerNotReady = !run || status === "WAITING_FOR_DEPLOY" || status === "DELAYED" || status === "QUEUED";
+    const workerNotReady = !hasRealtimeRun || runStatus === "PENDING_VERSION" || runStatus === "DELAYED" || runStatus === "QUEUED";
     const timeoutMs = workerNotReady ? 45_000 : 300_000;
+    const deadline = (runStartedAt.current ?? Date.now()) + timeoutMs;
+    const remainingMs = Math.max(0, deadline - Date.now());
     const timeoutId = window.setTimeout(() => {
       if (completedRunId.current === runId) return;
       completedRunId.current = runId;
       setGenerationError(
         workerNotReady
-          ? "The spec worker did not start. Make sure Trigger.dev is running (`npx trigger.dev@latest dev`) and try again."
+          ? "The spec worker did not start for this environment. Check that the spec task is deployed to the matching Trigger.dev environment and try again."
           : "Spec generation timed out. Groq, Gemini, or the configured OpenRouter model may be unavailable. Check provider quotas and try again.",
       );
       setGenerationMessage(null);
       setRunId(undefined);
       setPublicToken(undefined);
-    }, timeoutMs);
+      runStartedAt.current = undefined;
+    }, remainingMs);
     return () => window.clearTimeout(timeoutId);
-  }, [publicToken, run, runId]);
+  }, [hasRealtimeRun, publicToken, runStatus, runId]);
 
   const generate = async () => {
     if (isStartingGeneration || runId || nodes.length === 0) return;
@@ -160,6 +167,7 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ roomId: projectId, nodes, edges, chatHistory }),
+        signal: AbortSignal.timeout(15_000),
       });
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok || typeof payload !== "object" || payload === null || !("runId" in payload) || typeof payload.runId !== "string") {
@@ -169,11 +177,13 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ runId: payload.runId }),
+        signal: AbortSignal.timeout(15_000),
       });
       const tokenPayload: unknown = await tokenResponse.json().catch(() => null);
       if (!tokenResponse.ok || typeof tokenPayload !== "object" || tokenPayload === null || !("token" in tokenPayload) || typeof tokenPayload.token !== "string") {
         throw new Error("Could not connect to spec generation. Try again.");
       }
+      runStartedAt.current = Date.now();
       setRunId(payload.runId);
       setPublicToken(tokenPayload.token);
     } catch (reason) {
