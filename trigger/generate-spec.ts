@@ -23,6 +23,9 @@ export const generateSpec = schemaTask({
     console.log("Spec generation started", { projectId: payload.projectId, attempt: ctx.attempt.number });
 
     try {
+      // Fail before consuming provider quota or uploading a Blob if the worker
+      // database credentials are missing or invalid.
+      await prisma.$connect();
       const system = `You are Archy AI, a software architecture documentation specialist. Write a complete, clear technical specification in Markdown based on the supplied architecture canvas and conversation. Use only supported details; identify unspecified choices as assumptions or open questions. Include an overview, requirements, components, data flow, interfaces, data model, security and reliability considerations, and deployment/operations where relevant. Return plain Markdown without a JSON wrapper.`;
       const prompt = `Project ID: ${payload.projectId}\n\nConversation context:\n${payload.chatHistory.map((message) => `${message.role ?? message.sender ?? "user"}: ${message.content}`).join("\n\n")}\n\nCanvas nodes:\n${JSON.stringify(payload.nodes)}\n\nCanvas edges:\n${JSON.stringify(payload.edges)}`;
       const options = {
