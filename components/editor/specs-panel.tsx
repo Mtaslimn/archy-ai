@@ -130,6 +130,26 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
     setPublicToken(undefined);
   }, [loadSpecs, publicToken, run, runError, runId]);
 
+  useEffect(() => {
+    if (!runId || !publicToken) return;
+    const status = typeof run?.status === "string" ? run.status : "";
+    const workerNotReady = !run || status === "WAITING_FOR_DEPLOY" || status === "DELAYED" || status === "QUEUED";
+    const timeoutMs = workerNotReady ? 45_000 : 300_000;
+    const timeoutId = window.setTimeout(() => {
+      if (completedRunId.current === runId) return;
+      completedRunId.current = runId;
+      setGenerationError(
+        workerNotReady
+          ? "The spec worker did not start. Make sure Trigger.dev is running (`npx trigger.dev@latest dev`) and try again."
+          : "Spec generation timed out. Groq, Gemini, or the configured OpenRouter model may be unavailable. Check provider quotas and try again.",
+      );
+      setGenerationMessage(null);
+      setRunId(undefined);
+      setPublicToken(undefined);
+    }, timeoutMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [publicToken, run, runId]);
+
   const generate = async () => {
     if (isStartingGeneration || runId || nodes.length === 0) return;
     setIsStartingGeneration(true);
