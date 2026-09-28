@@ -81,6 +81,21 @@ function boundedNumber(value: unknown, fallback: number, min: number, max: numbe
     : fallback;
 }
 
+function getEdgeHandleIds(source: CanvasNode, target: CanvasNode) {
+  const sourceCenterX = source.position.x + (source.width ?? SHAPE_CONFIG[source.data.shape].width) / 2;
+  const sourceCenterY = source.position.y + (source.height ?? SHAPE_CONFIG[source.data.shape].height) / 2;
+  const targetCenterX = target.position.x + (target.width ?? SHAPE_CONFIG[target.data.shape].width) / 2;
+  const targetCenterY = target.position.y + (target.height ?? SHAPE_CONFIG[target.data.shape].height) / 2;
+  if (Math.abs(targetCenterX - sourceCenterX) > Math.abs(targetCenterY - sourceCenterY)) {
+    return targetCenterX > sourceCenterX
+      ? { sourceHandle: "right-source", targetHandle: "left-target" }
+      : { sourceHandle: "left-source", targetHandle: "right-target" };
+  }
+  return targetCenterY >= sourceCenterY
+    ? { sourceHandle: "bottom-source", targetHandle: "top-target" }
+    : { sourceHandle: "top-source", targetHandle: "bottom-target" };
+}
+
 function normalizeAction(
   raw: Record<string, unknown>,
   graph: { nodes: CanvasNode[]; edges: CanvasEdge[] },
@@ -183,12 +198,15 @@ function normalizeAction(
     if (!nodeById.has(source) || !nodeById.has(target) || source === target) return null;
     if (graph.edges.some((edge) => edge.source === source && edge.target === target)) return null;
     const id = `ai-edge-${index}-${crypto.randomUUID()}`;
-    const label = typeof raw.label === "string" ? raw.label.trim().slice(0, 80) : "";
+    const label = typeof raw.label === "string" ? raw.label.trim().slice(0, 40) : "";
+    const sourceNode = nodeById.get(source)!;
+    const targetNode = nodeById.get(target)!;
     const edge: CanvasEdge = {
       id,
       type: "canvasEdge",
       source,
       target,
+      ...getEdgeHandleIds(sourceNode, targetNode),
       data: label ? { label } : {},
     };
     graph.edges.push(edge);
@@ -331,9 +349,10 @@ Rules:
 - Create exactly as many components as the requirements justify — no more, no less. Do not pad the architecture to reach a target count.
 - Only connect two components with an edge if there is a genuine data or control flow; do not force every node into one connected graph.
 - Every component needs a requirement-based justification; every edge needs a real-interaction justification.
+- Level of abstraction: design a system architecture (technical components and their interactions), not a sitemap, page list, or feature list. Nodes can represent relevant actors, application tiers, data stores, and external services. Never create page or screen nodes unless the user explicitly asks for a sitemap or navigation flow. Any system that stores or serves data needs a client/frontend, a backend, and a data store; these basic tiers are justified and are not unrequested infrastructure. Add authentication, storage, or external services only when the request implies them. Advanced infrastructure such as gateways, caches, queues, load balancers, search, and microservices still needs an explicit or clearly implied requirement.
 - Do not assume scalability, realtime behavior, async processing, microservices, caches, queues, or a cloud provider unless the requirements imply them.
 - If the user explicitly says not to use a technology, never include it unless the requirements create an unavoidable contradiction — and if they do, omit it rather than silently including it.
-- Prefer meaningful, domain-specific labels (e.g. Product Catalog, Order Management, Payment Processing for e-commerce) over generic ones (Application Service, Core Service) when the requirements support a more specific name.
+- Use specific technical names for components, tiers, services, and stores (such as Product Catalog API, Orders Database, or Payment Provider) rather than generic names such as Application Service; never name a node after a page.
 - Mentions in examples or negative statements are not requirements.
 - Correctness matters more than sophistication.
 - Never return an empty actions array.
@@ -342,7 +361,7 @@ ${hasCanvas
   ? "The user's latest request determines the target architecture. Existing canvas content is context, not authority: add, rename, move, rewire, or delete nodes and edges that are inconsistent with the new request."
   : "The canvas is empty. Create only the architecture justified by the request."}
 
-Return ordered actions using only the allowed action types. Every action must include ref, label, shape, x, y, source, and target because the output format requires them. For add_node, provide a unique ref, concise label, valid shape and numeric x/y; set source and target to empty strings. For add_edge, set source and target to existing node IDs or refs created earlier; set ref and label to empty strings, shape to rectangle, and x/y to 0. For move_node include its existing nodeId and destination x/y. For resize_node include nodeId, width, and height. For update_node_data include nodeId and a non-empty label; shape and color are optional. For delete_node include its existing nodeId; for delete_edge include its existing edgeId. For non-add actions, set ref and source/target to empty strings and set unused label/shape/x/y values to empty label, rectangle, and 0. Allowed shapes: ${NODE_SHAPES.join(", ")}. Allowed fill colors: ${Object.entries(NODE_COLORS).map(([name, pair]) => `${name}=${pair.fill}`).join(", ")}. Place nodes with readable spacing and avoid overlap.`,
+Return ordered actions using only the allowed action types. Every action must include ref, label, shape, x, y, source, and target because the output format requires them. For add_node, provide a unique ref, concise label, valid shape and numeric x/y; set source and target to empty strings. For add_edge, set source and target to existing node IDs or refs created earlier, set ref to an empty string, shape to rectangle and x/y to 0. Set label to a short 2-4 word description of what flows over that connection (for example, HTTP request, SQL query, Token check, or Upload image). Every edge must have a label. For move_node include its existing nodeId and destination x/y. For resize_node include nodeId, width, and height. For update_node_data include nodeId and a non-empty label; shape and color are optional. For delete_node include its existing nodeId; for delete_edge include its existing edgeId. For non-add actions, set ref and source/target to empty strings and set unused label/shape/x/y values to empty label, rectangle, and 0. Allowed shapes: ${NODE_SHAPES.join(", ")}. Allowed fill colors: ${Object.entries(NODE_COLORS).map(([name, pair]) => `${name}=${pair.fill}`).join(", ")}. Layout left to right in role columns: actors at x=0, clients/frontend at x=300, backend/application at x=600, and data stores or external services at x=900. Stack nodes in each column with about 170px vertical spacing. Arrange the graph so edges flow left to right and do not pass behind other nodes; keep readable spacing and avoid overlap.`,
         prompt: `User request:\n${payload.prompt}\n\nCurrent canvas graph:\n${JSON.stringify(graph)}`,
       };
       const normalizePlan = (plan: DesignPlan) => {
