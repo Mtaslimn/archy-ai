@@ -502,7 +502,7 @@ export function AiSidebar({ isOpen, onClose, roomId, nodes, edges, onApplyDesign
             </div>
           </TabsContent>
 
-          <TabsContent value="specs" className="min-h-0 flex-1 pt-3">
+          <TabsContent value="specs" className="min-h-0 min-w-0 flex-1 pt-3">
             <SpecsPanel
               projectId={roomId}
               nodes={nodes}

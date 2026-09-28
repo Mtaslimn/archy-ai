@@ -24,7 +24,7 @@ function InlineMarkdown({ tokens }: { tokens: Tokens.Generic[] }) {
     if (token.type === "strong") return <strong key={key}><InlineMarkdown tokens={token.tokens ?? []} /></strong>;
     if (token.type === "em") return <em key={key}><InlineMarkdown tokens={token.tokens ?? []} /></em>;
     if (token.type === "del") return <del key={key}><InlineMarkdown tokens={token.tokens ?? []} /></del>;
-    if (token.type === "codespan") return <code key={key} className="rounded bg-subtle px-1 py-0.5 font-mono text-xs">{token.text}</code>;
+    if (token.type === "codespan") return <code key={key} className="break-all rounded bg-subtle px-1 py-0.5 font-mono text-xs">{token.text}</code>;
     if (token.type === "br") return <br key={key} />;
     if (token.type === "link") return <a key={key} href={token.href} rel="noreferrer" target="_blank" className="text-brand underline underline-offset-2">{token.text}</a>;
     if (token.type === "image") return <span key={key} className="text-copy-muted">[Image: {token.text}]</span>;
@@ -35,7 +35,7 @@ function InlineMarkdown({ tokens }: { tokens: Tokens.Generic[] }) {
 
 function MarkdownPreview({ content }: { content: string }) {
   const blocks = marked.lexer(content);
-  return <div className="space-y-3 break-words text-sm leading-6 text-copy-secondary">
+  return <div className="min-w-0 max-w-full space-y-3 break-words text-sm leading-6 text-copy-secondary">
     {blocks.map((block, index) => {
       const key = `${block.type}-${index}`;
       if (block.type === "heading") {
@@ -47,7 +47,13 @@ function MarkdownPreview({ content }: { content: string }) {
         const List = block.ordered ? "ol" : "ul";
         return <List key={key} className={`${block.ordered ? "list-decimal" : "list-disc"} space-y-1 pl-5`}>{block.items.map((item: Tokens.ListItem, itemIndex: number) => <li key={itemIndex}><InlineMarkdown tokens={item.tokens ?? []} /></li>)}</List>;
       }
-      if (block.type === "code") return <pre key={key} className="overflow-x-auto rounded-lg bg-base p-3 font-mono text-xs"><code>{block.text}</code></pre>;
+      if (block.type === "code") return <pre key={key} className="min-w-0 max-w-full overflow-x-auto rounded-lg bg-base p-3 font-mono text-xs"><code>{block.text}</code></pre>;
+      if (block.type === "table") return <div key={key} className="max-w-full overflow-x-auto rounded-lg border border-surface-border">
+        <table className="min-w-full border-collapse text-left text-xs">
+          <thead><tr>{block.header.map((cell: Tokens.TableCell, cellIndex: number) => <th key={cellIndex} className="border-b border-surface-border px-2 py-1.5 font-semibold text-copy-primary">{cell.tokens ? <InlineMarkdown tokens={cell.tokens} /> : cell.text}</th>)}</tr></thead>
+          <tbody>{block.rows.map((row: Tokens.TableCell[], rowIndex: number) => <tr key={rowIndex}>{row.map((cell: Tokens.TableCell, cellIndex: number) => <td key={cellIndex} className="border-b border-surface-border px-2 py-1.5 align-top">{cell.tokens ? <InlineMarkdown tokens={cell.tokens} /> : cell.text}</td>)}</tr>)}</tbody>
+        </table>
+      </div>;
       if (block.type === "blockquote") return <blockquote key={key} className="border-l-2 border-brand pl-3 text-copy-muted">{(block.tokens ?? []).map((child, childIndex) => child.type === "paragraph" ? <p key={childIndex}><InlineMarkdown tokens={child.tokens ?? []} /></p> : null)}</blockquote>;
       if (block.type === "hr") return <hr key={key} className="border-surface-border" />;
       if (block.type === "space") return null;
@@ -223,7 +229,7 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
   };
 
   return <>
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
       <Button type="button" onClick={() => void generate()} disabled={nodes.length === 0 || isStartingGeneration || Boolean(runId)} className="w-full bg-brand text-background hover:bg-brand/90">
         {isStartingGeneration || runId ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
         {isStartingGeneration || runId ? "Generating spec…" : "Generate spec from canvas"}
@@ -250,16 +256,16 @@ export function SpecsPanel({ projectId, nodes, edges, chatHistory }: SpecsPanelP
       </ScrollArea>
     </div>
     <Dialog open={Boolean(selectedSpec)} onOpenChange={(open) => { if (!open) { setSelectedSpec(null); setContent(null); } }}>
-      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col gap-4 rounded-3xl border border-surface-border bg-surface text-copy-primary" showCloseButton>
+      <DialogContent className="flex max-h-[85vh] min-w-0 max-w-[min(48rem,calc(100vw-2rem))] flex-col gap-4 overflow-hidden rounded-3xl border border-surface-border bg-surface text-copy-primary" showCloseButton>
         <DialogHeader className="pr-8">
           <DialogTitle className="truncate">{selectedSpec?.filename}</DialogTitle>
           <DialogDescription>{selectedSpec ? new Date(selectedSpec.createdAt).toLocaleString() : ""}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="min-h-0 flex-1 rounded-xl border border-surface-border bg-elevated p-4">
+        <div className="min-h-0 min-w-0 max-w-full flex-1 overflow-y-auto overscroll-contain rounded-xl border border-surface-border bg-elevated p-4">
           {loadingContent ? <div className="flex items-center gap-2 py-4 text-sm text-copy-muted"><LoaderCircle className="h-4 w-4 animate-spin" />Loading spec…</div> : null}
           {contentError ? <p role="alert" className="py-4 text-sm text-state-error">{contentError}</p> : null}
           {content !== null && !loadingContent ? <MarkdownPreview content={content} /> : null}
-        </ScrollArea>
+        </div>
         <div className="flex justify-end">
           <Button type="button" onClick={() => selectedSpec && download(selectedSpec)} disabled={!selectedSpec} className="bg-brand text-background hover:bg-brand/90"><Download className="h-4 w-4" />Download</Button>
         </div>
